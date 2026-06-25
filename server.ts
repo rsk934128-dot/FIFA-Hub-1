@@ -1,0 +1,916 @@
+import express from "express";
+import path from "path";
+import { createServer as createViteServer } from "vite";
+import { GoogleGenAI, Type } from "@google/genai";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+// Create the express app
+async function startServer() {
+  const app = express();
+  app.use(express.json());
+  const PORT = 3000;
+
+  // Initialize Gemini if key exists
+  let ai: GoogleGenAI | null = null;
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY") {
+    try {
+      ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
+      console.log("Gemini API Client successfully initialized.");
+    } catch (e) {
+      console.error("Failed to initialize Gemini Client: ", e);
+    }
+  } else {
+    console.log("No valid GEMINI_API_KEY found. Running with high-fidelity local simulator and fallback content engines.");
+  }
+
+  // --- API ROUTE: Get News ---
+  app.get("/api/football-news", async (req, res) => {
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: "Generate 5 exciting and realistic football news articles. Include items about international tournaments, transfer gossip, tactician statements, or underdog stories. Ensure they feel contemporary (set in 2026). Make some specific to global and Asian football contexts.",
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING, description: "Unique article ID" },
+                  title: { type: Type.STRING, description: "Engaging headline" },
+                  category: { type: Type.STRING, description: "Category like Transfer, Tournament, Statement, Analysis" },
+                  summary: { type: Type.STRING, description: "1-sentence summary" },
+                  content: { type: Type.STRING, description: "Full news article contents (2-3 paragraphs)" },
+                  date: { type: Type.STRING, description: "Formatted date like June 24, 2026" },
+                  imageSeed: { type: Type.STRING, description: "One word like football, stadium, jersey, boots, goalie" },
+                  source: { type: Type.STRING, description: "Source name like FIFA Hub News, Global Football" }
+                },
+                required: ["id", "title", "category", "summary", "content", "date", "imageSeed", "source"]
+              }
+            }
+          }
+        });
+        
+        if (response.text) {
+          const news = JSON.parse(response.text.trim());
+          return res.json(news.map((item: any) => ({ ...item, engine: "gemini" })));
+        }
+      } catch (error) {
+        console.warn("Gemini News Generation bypassed due to API constraints, using high-quality local articles.");
+      }
+    }
+
+    // High quality offline fallback articles
+    const localNews = [
+      {
+        id: "fb-news-1",
+        title: "The 2026 FIFA World Cup Countdown: Final Team Tactics Revealed",
+        category: "Tournament",
+        summary: "Nations around the globe finalize their defensive alignments and high-pressing routines as pre-tournament friendlies wrap up.",
+        content: "As the football world pivots towards the highly anticipated tournament stage, leading tacticians are solidifying their core setups. High-intensity pressing and fluid 4-3-3 transitions have emerged as the dominant schemes among European and South American favorites, with teams experimenting with deeper, compact midfields to counter sudden breakaways. Tactical analysis shows a record level of defensive readiness as teams aim to shut down space in the critical middle zone.",
+        date: "June 24, 2026",
+        imageSeed: "stadium",
+        source: "FIFA Hub Sports"
+      },
+      {
+        id: "fb-news-2",
+        title: "Midnight Marvel: Emerging Talents Set to Shake Up the Transfer Market",
+        category: "Transfer",
+        summary: "Scouts pinpoint three highly promising wingers whose exceptional performances have ignited bidding wars among elite clubs.",
+        content: "A wave of dynamic, creative wingers has caught the eye of top scouting departments. Known for high progressive carry rates and explosive acceleration, these young stars are driving major valuation spikes. Club negotiators are already preparing high-budget proposals to secure long-term signatures ahead of the pre-season window, anticipating intense competition in the transfer market.",
+        date: "June 23, 2026",
+        imageSeed: "football",
+        source: "Transfer Insider"
+      },
+      {
+        id: "fb-news-3",
+        title: "Tactical Deep-Dive: How Hybrid Midfielders Command the Modern Pitch",
+        category: "Analysis",
+        summary: "An exploration of box-to-box creators who manage defensive recoveries while unlocking opponent low blocks.",
+        content: "The evolution of the modern midfielder shows a clear shift away from pure single-role players. Today's command generals must match rigorous ball-recovery counts with surgical progressive passing. By stepping up to break down low blocks while simultaneously anchoring fast recovery sprints, these hybrid players have become the central nodes around which contemporary matches succeed or fail.",
+        date: "June 22, 2026",
+        imageSeed: "jersey",
+        source: "Tactical Board"
+      },
+      {
+        id: "fb-news-4",
+        title: "Underdog Journeys: National Squads Inspiring the Next Generation of Fans",
+        category: "Tournament",
+        summary: "A heartfelt look at smaller nations breaking tournament records and challenging historically dominant forces.",
+        content: "There is nothing more magical in football than seeing unfancied teams disrupt established hierarchies. This season, several rising squads have demonstrated that defensive synergy, collective work-rate, and relentless counter-attacking can neutralize superior individual talent. Their inspiring runs have ignited national fan celebrations and proved that strategic discipline can bridge any resource gap.",
+        date: "June 21, 2026",
+        imageSeed: "boots",
+        source: "Global Football"
+      }
+    ];
+    res.json(localNews.map(n => ({ ...n, engine: "fallback" as const })));
+  });
+
+  // --- API ROUTE: Get News Ticker ---
+  app.get("/api/news-ticker", async (req, res) => {
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: "Generate 10 short football news ticker items. Types: BREAKING, TRANSFER, RUMOR. Keep them under 80 characters. Set in June 2026.",
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  text: { type: Type.STRING },
+                  type: { type: Type.STRING, enum: ["BREAKING", "TRANSFER", "RUMOR"] }
+                },
+                required: ["id", "text", "type"]
+              }
+            }
+          }
+        });
+        
+        if (response.text) {
+          return res.json(JSON.parse(response.text.trim()));
+        }
+      } catch (error) {
+        console.warn("Gemini Ticker Generation failed, using fallbacks.");
+      }
+    }
+
+    const fallbackTicker = [
+      { id: "t1", text: "BREAKING: Global star agrees personal terms for record-breaking summer move.", type: "BREAKING" },
+      { id: "t2", text: "TRANSFER: Rising Asian talent signs 5-year deal with European giants.", type: "TRANSFER" },
+      { id: "t3", text: "RUMOR: Veteran keeper considering retirement after tournament finale.", type: "RUMOR" },
+      { id: "t4", text: "BREAKING: Stadium expansion plans approved ahead of 2027 season.", type: "BREAKING" },
+      { id: "t5", text: "TRANSFER: Midfield general completes medical ahead of official unveiling.", type: "TRANSFER" },
+      { id: "t6", text: "RUMOR: Top manager spotted in talks with struggling national side.", type: "RUMOR" },
+      { id: "t7", text: "BREAKING: Key striker ruled out of group stage following training injury.", type: "BREAKING" },
+      { id: "t8", text: "TRANSFER: Defensive anchor moves for undisclosed fee in shock deadline day deal.", type: "TRANSFER" }
+    ];
+    res.json(fallbackTicker);
+  });
+
+  // --- API ROUTE: Scout Team ---
+  app.post("/api/scout-team", async (req, res) => {
+    const { country } = req.body;
+    const countryName = country || "Argentina";
+
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: `Create a comprehensive and realistic tactical scouting report for the national football team of: ${countryName}.
+Provide detailed lineups, positions, strengths, weaknesses, ratings, playstyle, and standard players.
+Include exact (x, y) coordinates for 11 players on a tactical pitch visualizer.
+X coordinate ranges from 0 to 100 (where 0 is left wing, 100 is right wing, 50 is center).
+Y coordinate ranges from 0 to 100 (where 10 is goalkeeper at the bottom, and 90 is forward at the top).
+Ensure the lineup layout perfectly reflects their actual formation (e.g. 4-3-3, 3-5-2, 4-2-3-1, or 4-4-2).`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                country: { type: Type.STRING },
+                formation: { type: Type.STRING, description: "e.g. 4-3-3 or 4-2-3-1" },
+                styleOfPlay: { type: Type.STRING, description: "2-3 sentences explaining play style" },
+                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+                weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+                tacticalRating: { type: Type.INTEGER, description: "Overall rating 1 to 100" },
+                defenseRating: { type: Type.INTEGER, description: "Defense rating 1 to 100" },
+                attackRating: { type: Type.INTEGER, description: "Attack rating 1 to 100" },
+                midfieldRating: { type: Type.INTEGER, description: "Midfield rating 1 to 100" },
+                keyPlayers: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: { type: Type.STRING },
+                      number: { type: Type.INTEGER },
+                      position: { type: Type.STRING, description: "GK, DEF, MID, FWD" },
+                      role: { type: Type.STRING, description: "e.g. Creative Playmaker, Anchor, Poacher" },
+                      heatmap: {
+                        type: Type.ARRAY,
+                        description: "15-20 coordinates (x, y) on a 100x100 grid where the player is most active, with intensity from 0.1 to 1.0",
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            x: { type: Type.INTEGER },
+                            y: { type: Type.INTEGER },
+                            intensity: { type: Type.NUMBER }
+                          },
+                          required: ["x", "y", "intensity"]
+                        }
+                      }
+                    },
+                    required: ["name", "number", "position", "role", "heatmap"]
+                  }
+                },
+                lineup: {
+                  type: Type.ARRAY,
+                  description: "Exactly 11 players with name, position abbreviation, and X/Y positions on a 100x100 grid",
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: { type: Type.STRING, description: "Player Last Name" },
+                      position: { type: Type.STRING, description: "e.g. GK, CB, LB, RB, CM, CDM, RW, LW, ST" },
+                      x: { type: Type.INTEGER },
+                      y: { type: Type.INTEGER }
+                    },
+                    required: ["name", "position", "x", "y"]
+                  }
+                }
+              },
+              required: ["country", "formation", "styleOfPlay", "strengths", "weaknesses", "tacticalRating", "defenseRating", "attackRating", "midfieldRating", "keyPlayers", "lineup"]
+            }
+          }
+        });
+
+        if (response.text) {
+          const report = JSON.parse(response.text.trim());
+          return res.json({ ...report, engine: "gemini" });
+        }
+      } catch (error) {
+        console.warn(`Gemini Scouting for ${countryName} bypassed due to API constraints.`);
+      }
+    }
+
+    // High fidelity offline fallback scouting data for common requests
+    const defaultReports: Record<string, any> = {
+      "argentina": {
+        country: "Argentina",
+        formation: "4-3-3",
+        styleOfPlay: "High-possession fluid attacking. Build-up operates through the central areas with quick short passing interchanges, combined with aggressive counter-pressing upon losing possession.",
+        strengths: ["World-class creative passing", "Exceptional close-control dribbling", "Highly resilient midfield holding", "Clinical finishing in box"],
+        weaknesses: ["Vulnerability to direct counter-attacks", "Aerial vulnerability on set pieces", "Aging core defense"],
+        tacticalRating: 92,
+        defenseRating: 88,
+        attackRating: 94,
+        midfieldRating: 93,
+        keyPlayers: [
+          { name: "Lionel Messi", number: 10, position: "FWD", role: "Trequartista & Playmaker", heatmap: [{x:70,y:60,intensity:0.8},{x:75,y:65,intensity:0.9},{x:80,y:70,intensity:1.0},{x:72,y:55,intensity:0.7},{x:65,y:62,intensity:0.6},{x:78,y:68,intensity:0.9}] },
+          { name: "Lautaro Martínez", number: 22, position: "FWD", role: "Pressing Forward", heatmap: [{x:50,y:80,intensity:0.9},{x:55,y:85,intensity:1.0},{x:45,y:75,intensity:0.8},{x:50,y:90,intensity:0.7},{x:52,y:82,intensity:1.0}] },
+          { name: "Alexis Mac Allister", number: 20, position: "MID", role: "Box-to-Box Creator", heatmap: [{x:40,y:50,intensity:0.9},{x:35,y:55,intensity:1.0},{x:45,y:45,intensity:0.8},{x:38,y:48,intensity:0.7},{x:42,y:52,intensity:1.0}] },
+          { name: "Emiliano Martínez", number: 23, position: "GK", role: "Elite Shot Stopper", heatmap: [{x:50,y:10,intensity:1.0},{x:50,y:15,intensity:0.8},{x:45,y:12,intensity:0.7},{x:55,y:12,intensity:0.7}] }
+        ],
+        lineup: [
+          { name: "E. Martínez", position: "GK", x: 50, y: 12 },
+          { name: "Molina", position: "RB", x: 82, y: 32 },
+          { name: "Romero", position: "CB", x: 62, y: 28 },
+          { name: "Otamendi", position: "CB", x: 38, y: 28 },
+          { name: "Tagliafico", position: "LB", x: 18, y: 32 },
+          { name: "De Paul", position: "CM", x: 65, y: 50 },
+          { name: "Enzo F.", position: "CDM", x: 50, y: 44 },
+          { name: "Mac Allister", position: "CM", x: 35, y: 50 },
+          { name: "Messi", position: "RW", x: 75, y: 72 },
+          { name: "Lautaro", position: "ST", x: 50, y: 82 },
+          { name: "Álvarez", position: "LW", x: 25, y: 72 }
+        ]
+      },
+      "brazil": {
+        country: "Brazil",
+        formation: "4-2-3-1",
+        styleOfPlay: "Expressive attacking with rapid wing transitions. Utilizes highly creative wingers to isolate defenders in 1v1 situations, backed by double defensive pivots for stability.",
+        strengths: ["Explosive wing pace", "Surgical dribbling in wide areas", "High defensive shielding", "Dynamic full-backs"],
+        weaknesses: ["Over-commitment in attack", "Slowing tempo against low blocks", "Midfield gaps on quick turnovers"],
+        tacticalRating: 91,
+        defenseRating: 87,
+        attackRating: 93,
+        midfieldRating: 90,
+        keyPlayers: [
+          { name: "Vinícius Júnior", number: 7, position: "FWD", role: "Explosive Inside Winger", heatmap: [{x:20,y:70,intensity:0.9},{x:25,y:75,intensity:1.0},{x:30,y:80,intensity:0.8},{x:22,y:65,intensity:0.7},{x:28,y:72,intensity:1.0}] },
+          { name: "Rodrygo Goes", number: 10, position: "FWD", role: "Creative Attacking Mid", heatmap: [{x:50,y:65,intensity:0.9},{x:55,y:70,intensity:1.0},{x:45,y:60,intensity:0.8},{x:50,y:75,intensity:0.7},{x:52,y:68,intensity:1.0}] },
+          { name: "Bruno Guimarães", number: 5, position: "MID", role: "Deep Lying Playmaker", heatmap: [{x:50,y:45,intensity:0.9},{x:55,y:40,intensity:1.0},{x:45,y:50,intensity:0.8},{x:48,y:48,intensity:0.7},{x:52,y:42,intensity:1.0}] },
+          { name: "Marquinhos", number: 4, position: "DEF", role: "Covering Center Back", heatmap: [{x:60,y:25,intensity:0.9},{x:62,y:30,intensity:1.0},{x:58,y:22,intensity:0.8},{x:60,y:35,intensity:0.7}] }
+        ],
+        lineup: [
+          { name: "Alisson", position: "GK", x: 50, y: 12 },
+          { name: "Danilo", position: "RB", x: 82, y: 30 },
+          { name: "Marquinhos", position: "CB", x: 62, y: 28 },
+          { name: "Gabriel M.", position: "CB", x: 38, y: 28 },
+          { name: "Arana", position: "LB", x: 18, y: 30 },
+          { name: "Guimarães", position: "CDM", x: 62, y: 45 },
+          { name: "Gomes", position: "CDM", x: 38, y: 45 },
+          { name: "Raphinha", position: "RW", x: 78, y: 65 },
+          { name: "Rodrygo", position: "AM", x: 50, y: 62 },
+          { name: "Vinícius Jr.", position: "LW", x: 22, y: 65 },
+          { name: "Endrick", position: "ST", x: 50, y: 82 }
+        ]
+      },
+      "france": {
+        country: "France",
+        formation: "4-3-3",
+        styleOfPlay: "Direct counter-attacking and high athletic coverage. Prefers structured mid-blocks that lure opponents forward, leaving massive vertical spaces for speed forwards to run into.",
+        strengths: ["Unrivaled physical speed", "Resilient central defense", "Incredible roster depth", "Surgical finishing"],
+        weaknesses: ["Passive build-up play", "Occasional lapses in concentration", "Over-reliance on individual brilliance"],
+        tacticalRating: 93,
+        defenseRating: 91,
+        attackRating: 95,
+        midfieldRating: 91,
+        keyPlayers: [
+          { name: "Kylian Mbappé", number: 10, position: "FWD", role: "Speed Merchant & Inside Forward", heatmap: [{x:20,y:80,intensity:1.0},{x:30,y:85,intensity:0.9},{x:40,y:82,intensity:0.8},{x:25,y:75,intensity:0.7},{x:15,y:82,intensity:0.8}] },
+          { name: "Antoine Griezmann", number: 7, position: "MID", role: "Roaming Creator", heatmap: [{x:50,y:60,intensity:1.0},{x:55,y:55,intensity:0.8},{x:45,y:55,intensity:0.8},{x:50,y:45,intensity:0.7},{x:60,y:65,intensity:0.9}] },
+          { name: "Aurélien Tchouaméni", number: 8, position: "MID", role: "Ball Winning Anchor", heatmap: [{x:50,y:40,intensity:1.0},{x:40,y:42,intensity:0.8},{x:60,y:42,intensity:0.8},{x:50,y:35,intensity:0.7}] },
+          { name: "William Saliba", number: 4, position: "DEF", role: "Elite Stopper", heatmap: [{x:60,y:25,intensity:1.0},{x:62,y:30,intensity:0.8},{x:58,y:22,intensity:0.8}] }
+        ],
+        lineup: [
+          { name: "Maignan", position: "GK", x: 50, y: 12 },
+          { name: "Koundé", position: "RB", x: 80, y: 32 },
+          { name: "Saliba", position: "CB", x: 62, y: 28 },
+          { name: "Upamecano", position: "CB", x: 38, y: 28 },
+          { name: "Hernández", position: "LB", x: 20, y: 32 },
+          { name: "Tchouaméni", position: "CDM", x: 50, y: 44 },
+          { name: "Kanté", position: "CM", x: 65, y: 52 },
+          { name: "Rabiot", position: "CM", x: 35, y: 52 },
+          { name: "Dembélé", position: "RW", x: 78, y: 72 },
+          { name: "Mbappé", position: "ST", x: 50, y: 82 },
+          { name: "Barcola", position: "LW", x: 22, y: 72 }
+        ]
+      },
+      "england": {
+        country: "England",
+        formation: "4-2-3-1",
+        styleOfPlay: "Control-oriented wing play with overlapping fullbacks. Focuses on patient positional play, utilizing smart link-up play from strikers dropping deep to let wide wingers cut inside.",
+        strengths: ["Excellent ball retention", "Dangerous set-piece delivery", "Tactical flexibility", "Elite shooting accuracy"],
+        weaknesses: ["Slow tempo in transition", "Defensive tracking under speed counters", "Decision making in penalty shootouts"],
+        tacticalRating: 90,
+        defenseRating: 86,
+        attackRating: 92,
+        midfieldRating: 91,
+        keyPlayers: [
+          { name: "Harry Kane", number: 9, position: "FWD", role: "Deep-Dropping Complete Forward", heatmap: [{x:50,y:75,intensity:1.0},{x:50,y:65,intensity:0.9},{x:55,y:70,intensity:0.8},{x:45,y:70,intensity:0.8},{x:50,y:85,intensity:0.7}] },
+          { name: "Jude Bellingham", number: 10, position: "MID", role: "Dynamic Shadow Striker", heatmap: [{x:50,y:62,intensity:1.0},{x:55,y:68,intensity:0.9},{x:45,y:68,intensity:0.9},{x:50,y:55,intensity:0.7},{x:60,y:72,intensity:0.8}] },
+          { name: "Bukayo Saka", number: 7, position: "FWD", role: "Inside Forward", heatmap: [{x:80,y:75,intensity:1.0},{x:85,y:80,intensity:0.9},{x:75,y:70,intensity:0.8},{x:78,y:65,intensity:0.7},{x:82,y:85,intensity:0.8}] },
+          { name: "Declan Rice", number: 4, position: "MID", role: "Box-to-Box Destroyer", heatmap: [{x:40,y:45,intensity:1.0},{x:45,y:48,intensity:0.8},{x:35,y:42,intensity:0.8},{x:42,y:40,intensity:0.7}] }
+        ],
+        lineup: [
+          { name: "Pickford", position: "GK", x: 50, y: 12 },
+          { name: "Walker", position: "RB", x: 82, y: 30 },
+          { name: "Stones", position: "CB", x: 62, y: 28 },
+          { name: "Guéhi", position: "CB", x: 38, y: 28 },
+          { name: "Shaw", position: "LB", x: 18, y: 30 },
+          { name: "Mainoo", position: "CDM", x: 62, y: 45 },
+          { name: "Rice", position: "CDM", x: 38, y: 45 },
+          { name: "Saka", position: "RW", x: 78, y: 65 },
+          { name: "Bellingham", position: "AM", x: 50, y: 62 },
+          { name: "Foden", position: "LW", x: 22, y: 65 },
+          { name: "Kane", position: "ST", x: 50, y: 82 }
+        ]
+      }
+    };
+
+    // Normalize input key to match fallbacks
+    const normalizedKey = countryName.toLowerCase().trim();
+    if (defaultReports[normalizedKey]) {
+      return res.json({ ...defaultReports[normalizedKey], engine: "fallback" as const });
+    }
+
+    // Dynamic mock generator for any other country name (ensures perfect reliability!)
+    const genericReport = {
+      country: countryName.charAt(0).toUpperCase() + countryName.slice(1),
+      formation: "4-3-3",
+      styleOfPlay: `High team coordination and disciplined positioning. ${countryName} focuses on strong defensive cohesion, looking to break with high-speed transitions and structured wing support.`,
+      strengths: ["Incredible squad work-rate", "Resilient defensive structure", "Rapid tactical counter-attacks"],
+      weaknesses: ["Vulnerability to sustained heavy pressure", "Limited bench depth in key positions"],
+      tacticalRating: 78,
+      defenseRating: 77,
+      attackRating: 75,
+      midfieldRating: 79,
+      keyPlayers: [
+        { name: "Captain Star", number: 10, position: "MID", role: "Playmaking Catalyst", heatmap: [{x:50,y:50,intensity:1.0},{x:45,y:55,intensity:0.8},{x:55,y:45,intensity:0.8},{x:50,y:60,intensity:0.7}] },
+        { name: "Wall defender", number: 4, position: "DEF", role: "Commanding Center Back", heatmap: [{x:50,y:30,intensity:1.0},{x:40,y:25,intensity:0.8},{x:60,y:25,intensity:0.8}] },
+        { name: "Speedster forward", number: 11, position: "FWD", role: "Rapid Counter-Attacker", heatmap: [{x:50,y:80,intensity:1.0},{x:30,y:70,intensity:0.7},{x:70,y:70,intensity:0.7}] },
+        { name: "Safe Keeper", number: 1, position: "GK", role: "Reliable Shot Blocker", heatmap: [{x:50,y:10,intensity:1.0}] }
+      ],
+      lineup: [
+        { name: "Keeper", position: "GK", x: 50, y: 12 },
+        { name: "R. Back", position: "RB", x: 80, y: 32 },
+        { name: "C. Back 1", position: "CB", x: 62, y: 28 },
+        { name: "C. Back 2", position: "CB", x: 38, y: 28 },
+        { name: "L. Back", position: "LB", x: 20, y: 32 },
+        { name: "Anchor", position: "CDM", x: 50, y: 44 },
+        { name: "Midfield L", position: "CM", x: 65, y: 52 },
+        { name: "Midfield R", position: "CM", x: 35, y: 52 },
+        { name: "R. Winger", position: "RW", x: 78, y: 72 },
+        { name: "Striker", position: "ST", x: 50, y: 82 },
+        { name: "L. Winger", position: "LW", x: 22, y: 72 }
+      ]
+    };
+    res.json({ ...genericReport, engine: "fallback" as const });
+  });
+
+  // --- API ROUTE: Simulate Match ---
+  app.post("/api/simulate-match", async (req, res) => {
+    const { teamA, teamB, difficulty } = req.body;
+    const nameA = teamA || "Argentina";
+    const nameB = teamB || "Brazil";
+
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: `Simulate a realistic, highly exciting, detailed football match between team A (${nameA}) and team B (${nameB}). 
+Write a complete match timeline detailing goals, yellow/red cards, near misses, or key events. 
+Ensure the final score feels representative of real-world strengths (for example, if a massive powerhouse plays a heavy underdog, the powerhouse is favored, but surprises can happen!).
+Assign realistic statistics such as possession (should sum to 100), shots, shots on target, corners, fouls, and yellow/red cards.
+Finally, generate a set of "AI Highlights" (3-5 bulleted narrative summaries) and identify the "Man of the Match" with a short, expert analytical highlight explaining why they were the standout performer.
+Return the simulation strictly adhering to the JSON schema specified.`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                teamA: { type: Type.STRING },
+                teamB: { type: Type.STRING },
+                scoreA: { type: Type.INTEGER },
+                scoreB: { type: Type.INTEGER },
+                stats: {
+                  type: Type.OBJECT,
+                  properties: {
+                    possession: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                    shots: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                    shotsOnTarget: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                    corners: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                    fouls: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                    yellowCards: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                    redCards: { type: Type.ARRAY, items: { type: Type.INTEGER } }
+                  },
+                  required: ["possession", "shots", "shotsOnTarget", "corners", "fouls", "yellowCards", "redCards"]
+                },
+                events: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      minute: { type: Type.INTEGER },
+                      type: { type: Type.STRING },
+                      team: { type: Type.STRING },
+                      player: { type: Type.STRING },
+                      description: { type: Type.STRING }
+                    },
+                    required: ["minute", "type", "team", "player", "description"]
+                  }
+                },
+                highlights: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING }
+                },
+                manOfTheMatch: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    team: { type: Type.STRING },
+                    rating: { type: Type.NUMBER },
+                    highlight: { type: Type.STRING }
+                  },
+                  required: ["name", "team", "rating", "highlight"]
+                }
+              },
+              required: ["teamA", "teamB", "scoreA", "scoreB", "stats", "events", "highlights", "manOfTheMatch"]
+            }
+          }
+        });
+
+        if (response.text) {
+          const result = JSON.parse(response.text.trim());
+          return res.json({ ...result, engine: "gemini" });
+        }
+      } catch (error) {
+        console.warn(`Gemini Match Simulation between ${nameA} and ${nameB} bypassed due to API constraints.`);
+      }
+    }
+
+    // High fidelity local match simulator (runs 100% offline, highly realistic!)
+    console.log("Using high-fidelity offline match simulation engine.");
+    
+    // Assign strength indices (ratings) for standard teams
+    const ratings: Record<string, number> = {
+      "argentina": 92, "brazil": 91, "france": 93, "england": 90, "spain": 92,
+      "germany": 89, "portugal": 88, "italy": 87, "japan": 81, "bangladesh": 55,
+      "morocco": 83, "usa": 79, "mexico": 78, "netherlands": 88, "senegal": 80
+    };
+
+    const getRating = (team: string) => ratings[team.toLowerCase().trim()] || 75;
+    const rA = getRating(nameA);
+    const rB = getRating(nameB);
+
+    // Calculate goal weights based on rating ratios
+    const weightA = rA / (rA + rB);
+    const totalGoalsLambda = 2.4 + (Math.random() * 1.6); // typical soccer goals count
+    
+    // Simple Poisson-like randomized simulation
+    let scoreA = 0;
+    let scoreB = 0;
+    const events: any[] = [];
+
+    // Add kickoff
+    events.push({
+      minute: 1,
+      type: "kickoff",
+      team: "none",
+      player: "",
+      description: `The referee blows the whistle and the match between ${nameA} and ${nameB} is underway!`
+    });
+
+    // Generate random events throughout 90 minutes
+    const possibleEvents = Math.floor(6 + Math.random() * 6);
+    const eventMinutes: number[] = [];
+    while (eventMinutes.length < possibleEvents) {
+      const min = Math.floor(5 + Math.random() * 80);
+      if (!eventMinutes.includes(min) && min !== 45) {
+        eventMinutes.push(min);
+      }
+    }
+    eventMinutes.sort((a, b) => a - b);
+
+    // Sample player lists for descriptions
+    const genericPlayersA = ["Silva", "Gomes", "Rodriguez", "Fernandez", "Santos", "Costa", "Almeida"];
+    const genericPlayersB = ["Smith", "Jones", "Taylor", "Brown", "Miller", "Davis", "Wilson"];
+
+    const getPlayer = (team: 'A' | 'B') => {
+      const list = team === 'A' ? genericPlayersA : genericPlayersB;
+      return list[Math.floor(Math.random() * list.length)];
+    };
+
+    eventMinutes.forEach((min) => {
+      if (min === 45) return;
+      const isTeamA = Math.random() < weightA;
+      const side = isTeamA ? 'A' : 'B';
+      const activeTeam = isTeamA ? nameA : nameB;
+      const opponentTeam = isTeamA ? nameB : nameA;
+
+      const roll = Math.random();
+      if (roll < 0.25) {
+        // GOAL!
+        const scorer = getPlayer(side);
+        if (isTeamA) scoreA++; else scoreB++;
+        events.push({
+          minute: min,
+          type: "goal",
+          team: side,
+          player: scorer,
+          description: `GOAL! Beautiful link-up play finds ${scorer}, who turns past his marker and strikes a powerful shot into the bottom corner! ${activeTeam} takes the lead/equalizes!`
+        });
+      } else if (roll < 0.50) {
+        // CHANCE!
+        const player = getPlayer(side);
+        events.push({
+          minute: min,
+          type: "chance",
+          team: side,
+          player: player,
+          description: `WHAT A SAVE! ${player} rises highest to meet an incoming cross, but the goalkeeper pulls off an unbelievable fingertip save to deny ${activeTeam}!`
+        });
+      } else if (roll < 0.75) {
+        // YELLOW CARD
+        const defender = getPlayer(side === 'A' ? 'B' : 'A'); // opponent commits foul
+        events.push({
+          minute: min,
+          type: "card_yellow",
+          team: side === 'A' ? 'B' : 'A',
+          player: defender,
+          description: `Yellow Card! ${defender} commits a tactical foul to halt a promising, fast-breaking attack by ${activeTeam}.`
+        });
+      } else {
+        // SUBSTITUTION
+        events.push({
+          minute: min,
+          type: "substitution",
+          team: side,
+          player: getPlayer(side),
+          description: `Tactical Substitution. ${activeTeam} changes their formation, bringing on a fresh midfielder to regain central control.`
+        });
+      }
+    });
+
+    // Add Halftime
+    events.push({
+      minute: 45,
+      type: "halftime",
+      team: "none",
+      player: "",
+      description: `Halftime whistle blows. The teams head down the tunnel with the score resting at ${nameA} ${scoreA} - ${scoreB} ${nameB}.`
+    });
+
+    // Add Fulltime
+    events.push({
+      minute: 90,
+      type: "fulltime",
+      team: "none",
+      player: "",
+      description: `The referee blows the final whistle! Match ends: ${nameA} ${scoreA} - ${scoreB} ${nameB}. What an intense tactical battle!`
+    });
+
+    // Sort all events chronologically
+    events.sort((a, b) => a.minute - b.minute);
+
+    // Dynamic stats
+    const basePossessionA = Math.round(40 + (weightA * 20) + (Math.random() * 10 - 5));
+    const finalPossessionA = Math.max(25, Math.min(75, basePossessionA));
+    const possession: [number, number] = [finalPossessionA, 100 - finalPossessionA];
+
+    const shotsA = Math.round(5 + (rA / 10) + Math.floor(Math.random() * 5));
+    const shotsB = Math.round(5 + (rB / 10) + Math.floor(Math.random() * 5));
+    const shots: [number, number] = [shotsA, shotsB];
+
+    const sOnTargetA = Math.max(1, Math.round(shotsA * (0.3 + Math.random() * 0.2)));
+    const sOnTargetB = Math.max(1, Math.round(shotsB * (0.3 + Math.random() * 0.2)));
+    const shotsOnTarget: [number, number] = [sOnTargetA, sOnTargetB];
+
+    const corners: [number, number] = [Math.floor(2 + Math.random() * 7), Math.floor(2 + Math.random() * 7)];
+    const fouls: [number, number] = [Math.floor(6 + Math.random() * 10), Math.floor(6 + Math.random() * 10)];
+    
+    // Count yellow cards from events
+    const yellowsA = events.filter(e => e.type === "card_yellow" && e.team === "A").length + Math.floor(Math.random() * 2);
+    const yellowsB = events.filter(e => e.type === "card_yellow" && e.team === "B").length + Math.floor(Math.random() * 2);
+    const yellowCards: [number, number] = [yellowsA, yellowsB];
+    const redCards: [number, number] = [0, 0];
+
+    // Generate some procedural highlights
+    const highlights = [
+      `An intense tactical battle where ${nameA} and ${nameB} both showcased high defensive lines.`,
+      scoreA > scoreB 
+        ? `${nameA} dominated the final third with clinical finishing and rapid transitions.` 
+        : scoreB > scoreA 
+          ? `${nameB} exploited spaces on the counter-attack to secure a decisive result.`
+          : `A tightly contested midfield battle resulting in a deadlock that neither side could break.`,
+      `Key tactical substitutions in the second half significantly altered the momentum of the match.`
+    ];
+
+    // Pick a Man of the Match (MVP) from fallback
+    const motmTeam = scoreA >= scoreB ? 'A' : 'B';
+    const motmName = getPlayer(motmTeam);
+    const manOfTheMatch = {
+      name: motmName,
+      team: motmTeam === 'A' ? nameA : nameB,
+      rating: 8.5 + (Math.random() * 1.4),
+      highlight: `A standout performance from ${motmName}, whose tactical awareness and work-rate anchored the team during critical transitions.`
+    };
+
+    res.json({
+      teamA: nameA,
+      teamB: nameB,
+      scoreA,
+      scoreB,
+      stats: { possession, shots, shotsOnTarget, corners, fouls, yellowCards, redCards },
+      events,
+      highlights,
+      manOfTheMatch,
+      engine: "fallback" as const
+    });
+  });
+
+  // --- API ROUTE: Compare Players ---
+  app.get("/api/compare-players", async (req, res) => {
+    const { player1, player2 } = req.query;
+    
+    if (!player1 || !player2) {
+      return res.status(400).json({ error: "Missing player names for comparison." });
+    }
+
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: `Perform a detailed, head-to-head tactical comparison between two football players: ${player1} and ${player2}.
+Provide realistic performance metrics (0-100), a concise summary of their playing style/role, and a final "Tactical Verdict" on who would be better suited for a high-intensity modern tactical system.
+Return the data in a clean JSON format.`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                playerA: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    metrics: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          label: { type: Type.STRING },
+                          value: { type: Type.NUMBER }
+                        },
+                        required: ["label", "value"]
+                      }
+                    },
+                    summary: { type: Type.STRING }
+                  },
+                  required: ["name", "metrics", "summary"]
+                },
+                playerB: {
+                  type: Type.OBJECT,
+                  properties: {
+                    name: { type: Type.STRING },
+                    metrics: {
+                      type: Type.ARRAY,
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          label: { type: Type.STRING },
+                          value: { type: Type.NUMBER }
+                        },
+                        required: ["label", "value"]
+                      }
+                    },
+                    summary: { type: Type.STRING }
+                  },
+                  required: ["name", "metrics", "summary"]
+                },
+                tacticalVerdict: { type: Type.STRING }
+              },
+              required: ["playerA", "playerB", "tacticalVerdict"]
+            }
+          }
+        });
+
+        if (response.text) {
+          const comparison = JSON.parse(response.text.trim());
+          return res.json({ ...comparison, engine: "gemini" });
+        }
+      } catch (error) {
+        console.warn(`Gemini Player Comparison failed for ${player1} vs ${player2}: `, error);
+      }
+    }
+
+    // Fallback comparison
+    const fallbackComparison = {
+      playerA: {
+        name: player1 as string,
+        metrics: [
+          { label: "Pace", value: 85 },
+          { label: "Dribbling", value: 88 },
+          { label: "Shooting", value: 82 },
+          { label: "Passing", value: 80 }
+        ],
+        summary: "A versatile attacker with great movement and technical quality."
+      },
+      playerB: {
+        name: player2 as string,
+        metrics: [
+          { label: "Pace", value: 82 },
+          { label: "Dribbling", value: 84 },
+          { label: "Shooting", value: 89 },
+          { label: "Passing", value: 78 }
+        ],
+        summary: "A clinical finisher with exceptional positioning and power."
+      },
+      tacticalVerdict: "While both players offer elite quality, the choice depends on whether you value creative dribbling or pure finishing output.",
+      engine: "fallback" as const
+    };
+    res.json(fallbackComparison);
+  });
+
+  // --- API ROUTE: Tactical Advisor Chat ---
+  app.post("/api/chat", express.json(), async (req, res) => {
+    const { messages } = req.body;
+    
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "Invalid chat history." });
+    }
+
+    if (ai) {
+      try {
+        const lastMessage = messages[messages.length - 1].content;
+        const response = await ai.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: `You are an elite, world-class football (soccer) tactical coach and advisor. 
+You provide deep, expert-level analysis on formations, player roles, team dynamics, and historical tactical evolutions.
+Be professional, slightly analytical, and passionate about the "beautiful game". 
+Keep responses concise but insightful (max 2-3 paragraphs).
+Context of user query: ${lastMessage}`,
+        });
+
+        if (response.text) {
+          return res.json({ 
+            content: response.text.trim(),
+            engine: "gemini" 
+          });
+        }
+      } catch (error) {
+        console.warn("Gemini Chat Advisor failed: ", error);
+      }
+    }
+
+    // Fallback AI behavior
+    const fallbackResponses = [
+      "That is an interesting tactical observation. Modern systems increasingly rely on inverted full-backs to create overloads in central areas.",
+      "From a coaching perspective, the balance between defensive transition and offensive width is critical. Have you considered a high-pressing 4-3-3?",
+      "Tactical discipline is the bedrock of success. Even the most creative players must adhere to the defensive structure to maintain team shape.",
+      "The evolution of the 'False 9' has completely changed how center-backs approach marking. It requires a high level of communication to manage the space."
+    ];
+    const randomFallback = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
+    
+    res.json({ 
+      content: `${randomFallback} (Note: Offline advisor active.)`,
+      engine: "fallback" 
+    });
+  });
+
+  // --- API ROUTE: Quiz Question ---
+  app.get("/api/quiz-question", async (req, res) => {
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: "Generate a tough, highly interesting multiple-choice football (soccer) trivia question about FIFA World Cup histories, football records, legendary players, or tactical concepts. Return options, a clear explanation, and a category tag.",
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING },
+                options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Exactly 4 options" },
+                correctIndex: { type: Type.INTEGER, description: "0-indexed index of correct answer" },
+                explanation: { type: Type.STRING, description: "Detailed explanation of why this answer is correct and historical details" },
+                category: { type: Type.STRING, description: "World Cup, Player Record, Clubs, Rules" }
+              },
+              required: ["question", "options", "correctIndex", "explanation", "category"]
+            }
+          }
+        });
+
+        if (response.text) {
+          const quiz = JSON.parse(response.text.trim());
+          return res.json({ ...quiz, engine: "gemini" });
+        }
+      } catch (error) {
+        console.warn("Gemini Quiz Generation bypassed due to API constraints.");
+      }
+    }
+
+    // High quality trivia questions bank
+    const quizBank = [
+      {
+        question: "Who is the all-time leading goal scorer in FIFA World Cup history?",
+        options: ["Pelé (Brazil)", "Miroslav Klose (Germany)", "Ronaldo Nazário (Brazil)", "Just Fontaine (France)"],
+        correctIndex: 1,
+        explanation: "Miroslav Klose of Germany holds the record with 16 goals across four World Cup tournaments (2002, 2006, 2010, and 2014), surpassing Ronaldo Nazário's previous record of 15 goals.",
+        category: "World Cup"
+      },
+      {
+        question: "Which nation won the inaugural FIFA World Cup in 1930?",
+        options: ["Argentina", "Uruguay", "Brazil", "Italy"],
+        correctIndex: 1,
+        explanation: "Uruguay hosted and won the first-ever FIFA World Cup in 1930, defeating their neighboring rivals Argentina 4-2 in the final in Montevideo.",
+        category: "World Cup"
+      },
+      {
+        question: "Who is the only player to have won three FIFA World Cup trophies?",
+        options: ["Pelé", "Diego Maradona", "Franz Beckenbauer", "Zinedine Zidane"],
+        correctIndex: 0,
+        explanation: "Edson Arantes do Nascimento, famously known as Pelé, is the only player in football history to win three World Cups: in 1958 (Sweden), 1962 (Chile), and 1970 (Mexico).",
+        category: "World Cup"
+      },
+      {
+        question: "Which goalkeeper has kept the most clean sheets in a single World Cup tournament?",
+        options: ["Gianluigi Buffon", "Iker Casillas", "Walter Zenga", "Oliver Kahn"],
+        correctIndex: 2,
+        explanation: "Walter Zenga of Italy holds the record for the most consecutive minutes without conceding a goal (517 minutes) and kept 5 clean sheets in the 1990 tournament in Italy.",
+        category: "Records"
+      },
+      {
+        question: "What is the famous tactical style developed by Rinus Michels and Johan Cruyff in the 1970s?",
+        options: ["Catenaccio", "Tiki-Taka", "Gegenpressing", "Total Football"],
+        correctIndex: 3,
+        explanation: "Total Football (Totaalvoetbal) is a tactical system where any outfield player can take over the role of any other player in the team. It was pioneered by Ajax and the Netherlands national team.",
+        category: "Tactics"
+      }
+    ];
+
+    const randomQuiz = quizBank[Math.floor(Math.random() * quizBank.length)];
+    res.json({ ...randomQuiz, engine: "fallback" as const });
+  });
+
+  // --- VITE MIDDLEWARE SETUP ---
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`FIFA Hub full-stack server successfully running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+startServer();

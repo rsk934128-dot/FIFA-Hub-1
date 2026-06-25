@@ -1,13 +1,20 @@
 import React, { useState, useEffect } from "react";
 import { ScoutingReport, PlayerComparison } from "../types";
-import { Shield, Sparkles, RefreshCw, AlertCircle, Search, Star, Layers, Activity, Users, ArrowLeftRight, Flame, Share2 } from "lucide-react";
+import { Shield, Sparkles, RefreshCw, AlertCircle, Search, Star, Layers, Activity, Users, ArrowLeftRight, Flame, Share2, History } from "lucide-react";
 import NetworkFlow from "./NetworkFlow";
+import { GmailShare } from "./GmailShare";
+import { DriveShare } from "./DriveShare";
+import { collection, addDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useFirebase } from "./FirebaseProvider";
+import { handleFirestoreError, OperationType } from "../lib/firebaseUtils";
 
 const SUGGESTED_COUNTRIES = [
   "Argentina", "Brazil", "France", "England", "Spain", "Germany", "Japan", "Bangladesh", "Morocco"
 ];
 
 export default function ScoutingTerminal() {
+  const { user } = useFirebase();
   const [view, setView] = useState<"scout" | "compare">("scout");
   
   // Scouting State
@@ -25,6 +32,7 @@ export default function ScoutingTerminal() {
   const [comparison, setComparison] = useState<PlayerComparison | null>(null);
   const [compareLoading, setCompareLoading] = useState<boolean>(false);
   const [compareError, setCompareError] = useState<string | null>(null);
+  const [comparisonHistory, setComparisonHistory] = useState<any[]>([]);
 
   const fetchReport = async (countryName: string) => {
     try {
@@ -62,6 +70,17 @@ export default function ScoutingTerminal() {
       }
       const data = await response.json();
       setComparison(data);
+
+      // Save to Firebase
+      if (user) {
+        addDoc(collection(db, "comparisons"), {
+          player1: player1,
+          player2: player2,
+          comparisonData: data,
+          createdAt: serverTimestamp(),
+          userId: user.uid
+        }).catch(err => handleFirestoreError(err, OperationType.CREATE, "comparisons"));
+      }
     } catch (err: any) {
       setCompareError("Failed to generate tactical comparison.");
       console.error(err);
@@ -73,6 +92,30 @@ export default function ScoutingTerminal() {
   useEffect(() => {
     fetchReport(activeCountry);
   }, []);
+
+  // Load comparison history
+  useEffect(() => {
+    if (!user) {
+      setComparisonHistory([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "comparisons"),
+      where("userId", "==", user.uid),
+      orderBy("createdAt", "desc"),
+      limit(10)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setComparisonHistory(docs);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, "comparisons");
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,6 +317,54 @@ export default function ScoutingTerminal() {
                       <Layers className="w-3.5 h-3.5 text-slate-500" />
                       Formation: <span className="text-white font-bold">{report.formation}</span>
                     </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <GmailShare 
+                      subject={`Scouting Report: ${report.country}`}
+                      body={`
+                        <div style="font-family: sans-serif; background-color: #050811; color: white; padding: 40px; border-radius: 20px;">
+                          <h1 style="color: #f59e0b; font-style: italic; margin-bottom: 5px;">SCOUTING REPORT: ${report.country}</h1>
+                          <p style="color: #94a3b8; font-size: 14px; margin-bottom: 25px;">Formation: <strong>${report.formation}</strong></p>
+                          
+                          <div style="background-color: rgba(255,255,255,0.05); padding: 20px; border-radius: 15px; margin-bottom: 30px;">
+                            <h2 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 15px;">Tactical Breakdown</h2>
+                            <p style="font-size: 14px; line-height: 1.6;">${report.playstyleSummary}</p>
+                          </div>
+
+                          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px;">
+                            <div>
+                              <h3 style="color: #f59e0b; font-size: 12px; text-transform: uppercase;">Strengths</h3>
+                              <ul style="font-size: 13px; padding-left: 20px;">
+                                ${report.strengths.map(s => `<li>${s}</li>`).join('')}
+                              </ul>
+                            </div>
+                            <div>
+                              <h3 style="color: #ef4444; font-size: 12px; text-transform: uppercase;">Weaknesses</h3>
+                              <ul style="font-size: 13px; padding-left: 20px;">
+                                ${report.weaknesses.map(w => `<li>${w}</li>`).join('')}
+                              </ul>
+                            </div>
+                          </div>
+
+                          <div style="margin-top: 40px; font-size: 12px; color: #475569;">
+                            Strategic Insight provided by Gemini AI Scouting.
+                          </div>
+                        </div>
+                      `}
+                      buttonText="Share Report"
+                    />
+                    <DriveShare
+                      fileName={`Scouting_Report_${report.country}.html`}
+                      content={`
+                        <div style="font-family: sans-serif; background-color: #050811; color: white; padding: 40px; border-radius: 20px;">
+                          <h1 style="color: #f59e0b; font-style: italic; margin-bottom: 5px;">SCOUTING REPORT: ${report.country}</h1>
+                          <p style="color: #94a3b8; font-size: 14px; margin-bottom: 25px;">Formation: <strong>${report.formation}</strong></p>
+                          <h2 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 15px;">Tactical Breakdown</h2>
+                          <p style="font-size: 14px; line-height: 1.6;">${report.playstyleSummary}</p>
+                        </div>
+                      `}
+                      buttonText="Save to Drive"
+                    />
                   </div>
                 </div>
 
@@ -533,6 +624,38 @@ export default function ScoutingTerminal() {
             </div>
           </div>
 
+          {/* Comparison History */}
+          {!comparison && !compareLoading && comparisonHistory.length > 0 && (
+            <div className="max-w-4xl mx-auto space-y-4">
+              <div className="flex items-center gap-2 px-2">
+                <History className="w-4 h-4 text-slate-500" />
+                <h3 className="text-[10px] font-mono text-slate-500 font-black uppercase tracking-[0.2em]">Previous Comparisons</h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {comparisonHistory.map((item) => (
+                  <button 
+                    key={item.id}
+                    onClick={() => {
+                      setPlayer1(item.player1);
+                      setPlayer2(item.player2);
+                      setComparison(item.comparisonData);
+                    }}
+                    className="bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center justify-between hover:bg-white/[0.08] transition-all group text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-black text-white italic uppercase">{item.player1}</span>
+                      <span className="text-[10px] font-mono text-amber-500 font-black">VS</span>
+                      <span className="text-xs font-black text-white italic uppercase">{item.player2}</span>
+                    </div>
+                    <div className="text-slate-500 group-hover:text-amber-400 transition-colors">
+                      <ArrowLeftRight className="w-3.5 h-3.5" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Result Area */}
           {compareLoading ? (
             <div className="py-24 flex flex-col items-center justify-center gap-4">
@@ -616,6 +739,49 @@ export default function ScoutingTerminal() {
                     <p className="text-sm text-slate-200 leading-relaxed font-sans border-l-2 border-amber-500/30 pl-6 italic">
                       {comparison.tacticalVerdict}
                     </p>
+                  </div>
+                  <div className="flex-shrink-0 pt-4 md:pt-0 flex flex-col gap-2">
+                    <GmailShare 
+                      subject={`Tactical Comparison: ${player1} vs ${player2}`}
+                      body={`
+                        <div style="font-family: sans-serif; background-color: #050811; color: white; padding: 40px; border-radius: 20px;">
+                          <h1 style="color: #f59e0b; font-style: italic; margin-bottom: 25px;">TACTICAL COMPARISON: ${player1} VS ${player2}</h1>
+                          
+                          <div style="background-color: rgba(255,255,255,0.05); padding: 25px; border-radius: 15px; margin-bottom: 30px; border-left: 4px solid #f59e0b;">
+                            <h2 style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 10px;">Final Verdict</h2>
+                            <p style="font-size: 15px; line-height: 1.7; font-style: italic;">${comparison.tacticalVerdict}</p>
+                          </div>
+
+                          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 40px;">
+                            <div>
+                              <h3 style="font-size: 18px; color: #f59e0b; margin-bottom: 10px;">${comparison.playerA.name}</h3>
+                              <p style="font-size: 13px; color: #94a3b8; margin-bottom: 15px;">${comparison.playerA.summary}</p>
+                              <ul style="font-size: 12px; list-style: none; padding: 0;">
+                                ${comparison.playerA.metrics.map(m => `<li>${m.label}: ${m.value}%</li>`).join('')}
+                              </ul>
+                            </div>
+                            <div>
+                              <h3 style="font-size: 18px; color: #f59e0b; margin-bottom: 10px;">${comparison.playerB.name}</h3>
+                              <p style="font-size: 13px; color: #94a3b8; margin-bottom: 15px;">${comparison.playerB.summary}</p>
+                              <ul style="font-size: 12px; list-style: none; padding: 0;">
+                                ${comparison.playerB.metrics.map(m => `<li>${m.label}: ${m.value}%</li>`).join('')}
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+                      `}
+                      buttonText="Share Verdict"
+                    />
+                    <DriveShare
+                      fileName={`Comparison_${player1}_vs_${player2}.html`}
+                      content={`
+                        <div style="font-family: sans-serif; background-color: #050811; color: white; padding: 40px; border-radius: 20px;">
+                          <h1 style="color: #f59e0b; font-style: italic; margin-bottom: 25px;">TACTICAL COMPARISON: ${player1} VS ${player2}</h1>
+                          <p style="font-size: 15px; line-height: 1.7; font-style: italic;">${comparison.tacticalVerdict}</p>
+                        </div>
+                      `}
+                      buttonText="Save Verdict"
+                    />
                   </div>
                 </div>
               </div>

@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { QuizQuestion } from "../types";
-import { Brain, Trophy, ChevronRight, CheckCircle2, XCircle, RefreshCw, Sparkles, AlertCircle, Activity } from "lucide-react";
+import { Brain, Trophy, ChevronRight, CheckCircle2, XCircle, RefreshCw, Sparkles, AlertCircle, Activity, Medal } from "lucide-react";
+import { collection, query, orderBy, limit, onSnapshot, setDoc, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useFirebase } from "./FirebaseProvider";
+import { handleFirestoreError, OperationType } from "../lib/firebaseUtils";
 
 export default function TriviaQuiz() {
+  const { user } = useFirebase();
   const [question, setQuestion] = useState<QuizQuestion | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -12,6 +17,49 @@ export default function TriviaQuiz() {
   const [streak, setStreak] = useState<number>(0);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [isAnswered, setIsAnswered] = useState<boolean>(false);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+
+  // Fetch Leaderboard
+  useEffect(() => {
+    const q = query(
+      collection(db, "high_scores"),
+      orderBy("score", "desc"),
+      limit(5)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setLeaderboard(docs);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, "high_scores");
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Update High Score
+  useEffect(() => {
+    if (!user || score <= 0) return;
+
+    const updateHighScore = async () => {
+      const scoreRef = doc(db, "high_scores", user.uid);
+      try {
+        const snap = await getDoc(scoreRef);
+        if (!snap.exists() || snap.data().score < score) {
+          await setDoc(scoreRef, {
+            userId: user.uid,
+            displayName: user.displayName || 'Anonymous',
+            score: score,
+            timestamp: serverTimestamp()
+          });
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, "high_scores");
+      }
+    };
+
+    updateHighScore();
+  }, [score, user]);
 
   const fetchQuestion = async () => {
     try {
@@ -190,6 +238,30 @@ export default function TriviaQuiz() {
         </div>
       )}
 
+      {leaderboard.length > 0 && <Leaderboard data={leaderboard} />}
+
+    </div>
+  );
+}
+
+function Leaderboard({ data }: { data: any[] }) {
+  return (
+    <div className="bg-black/20 border border-white/5 rounded-2xl p-4 space-y-3">
+      <div className="flex items-center gap-2 mb-2">
+        <Medal className="w-4 h-4 text-amber-500" />
+        <h3 className="text-[10px] font-mono text-slate-500 font-black uppercase tracking-widest">Global Top Scorers</h3>
+      </div>
+      <div className="space-y-2">
+        {data.map((entry, i) => (
+          <div key={entry.id} className="flex items-center justify-between px-3 py-2 bg-white/5 rounded-xl border border-white/5">
+            <div className="flex items-center gap-3">
+              <span className={`text-[10px] font-mono font-black ${i === 0 ? 'text-amber-500' : 'text-slate-500'}`}>0{i + 1}</span>
+              <span className="text-xs font-bold text-slate-300">{entry.displayName}</span>
+            </div>
+            <span className="text-xs font-mono font-black text-amber-400">{entry.score}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,16 +1,15 @@
 import React, { useState, useRef, useEffect } from "react";
 import { ChatMessage } from "../types";
-import { Send, User, Bot, RefreshCw, Sparkles, MessageSquare, ShieldAlert } from "lucide-react";
+import { Send, User, Bot, RefreshCw, Sparkles, MessageSquare, ShieldAlert, History } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { collection, addDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useFirebase } from "./FirebaseProvider";
+import { handleFirestoreError, OperationType } from "../lib/firebaseUtils";
 
 export default function TacticalAdvisor() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content: "Greetings. I am your Tactical Advisor. Whether you are analyzing high-pressing systems or looking for the perfect midfield pivot role, I am here to provide elite-level insights. What tactical challenge are we solving today?",
-      timestamp: new Date().toLocaleTimeString(),
-    },
-  ]);
+  const { user } = useFirebase();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -23,6 +22,46 @@ export default function TacticalAdvisor() {
     scrollToBottom();
   }, [messages]);
 
+  // Load chat history from Firebase
+  useEffect(() => {
+    if (!user) {
+      setMessages([{
+        role: "assistant",
+        content: "Greetings. I am your Tactical Advisor. Whether you are analyzing high-pressing systems or looking for the perfect midfield pivot role, I am here to provide elite-level insights. What tactical challenge are we solving today?",
+        timestamp: new Date().toLocaleTimeString(),
+      }]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "chats"),
+      where("userId", "==", user.uid),
+      orderBy("timestamp", "asc"),
+      limit(50)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (snapshot.empty) {
+        setMessages([{
+          role: "assistant",
+          content: "Greetings. I am your Tactical Advisor. Whether you are analyzing high-pressing systems or looking for the perfect midfield pivot role, I am here to provide elite-level insights. What tactical challenge are we solving today?",
+          timestamp: new Date().toLocaleTimeString(),
+        }]);
+      } else {
+        const loadedMessages = snapshot.docs.map(doc => ({
+          role: doc.data().role,
+          content: doc.data().content,
+          timestamp: doc.data().timestamp?.toDate().toLocaleTimeString() || new Date().toLocaleTimeString()
+        } as ChatMessage));
+        setMessages(loadedMessages);
+      }
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, "chats");
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -33,11 +72,22 @@ export default function TacticalAdvisor() {
       timestamp: new Date().toLocaleTimeString(),
     };
 
+    // Optimistic update
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
 
     try {
+      // Save user message to Firebase
+      if (user) {
+        await addDoc(collection(db, "chats"), {
+          role: "user",
+          content: input,
+          timestamp: serverTimestamp(),
+          userId: user.uid
+        });
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -53,6 +103,16 @@ export default function TacticalAdvisor() {
         content: data.content,
         timestamp: new Date().toLocaleTimeString(),
       };
+
+      // Save assistant response to Firebase
+      if (user) {
+        await addDoc(collection(db, "chats"), {
+          role: "assistant",
+          content: data.content,
+          timestamp: serverTimestamp(),
+          userId: user.uid
+        });
+      }
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error) {

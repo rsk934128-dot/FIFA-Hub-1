@@ -2,9 +2,15 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import { google } from "googleapis";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Helper to clean Gemini JSON responses (removes markdown backticks)
+function cleanJsonResponse(text: string) {
+  return text.replace(/```json|```/g, "").trim();
+}
 
 // Create the express app
 async function startServer() {
@@ -37,7 +43,7 @@ async function startServer() {
     if (ai) {
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-flash-latest",
+          model: "gemini-1.5-flash",
           contents: "Generate 5 exciting and realistic football news articles. Include items about international tournaments, transfer gossip, tactician statements, or underdog stories. Ensure they feel contemporary (set in 2026). Make some specific to global and Asian football contexts.",
           config: {
             responseMimeType: "application/json",
@@ -62,7 +68,7 @@ async function startServer() {
         });
         
         if (response.text) {
-          const news = JSON.parse(response.text.trim());
+          const news = JSON.parse(cleanJsonResponse(response.text));
           return res.json(news.map((item: any) => ({ ...item, engine: "gemini" })));
         }
       } catch (error) {
@@ -121,7 +127,7 @@ async function startServer() {
     if (ai) {
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-flash-latest",
+          model: "gemini-1.5-flash",
           contents: "Generate 10 short football news ticker items. Types: BREAKING, TRANSFER, RUMOR. Keep them under 80 characters. Set in June 2026.",
           config: {
             responseMimeType: "application/json",
@@ -141,10 +147,10 @@ async function startServer() {
         });
         
         if (response.text) {
-          return res.json(JSON.parse(response.text.trim()));
+          return res.json(JSON.parse(cleanJsonResponse(response.text)));
         }
       } catch (error) {
-        console.warn("Gemini Ticker Generation failed, using fallbacks.");
+        console.error("Gemini Ticker Generation failed:", error);
       }
     }
 
@@ -169,7 +175,7 @@ async function startServer() {
     if (ai) {
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-flash-latest",
+          model: "gemini-1.5-flash",
           contents: `Create a comprehensive and realistic tactical scouting report for the national football team of: ${countryName}.
 Provide detailed lineups, positions, strengths, weaknesses, ratings, playstyle, and standard players.
 Include exact (x, y) coordinates for 11 players on a tactical pitch visualizer.
@@ -237,7 +243,7 @@ Ensure the lineup layout perfectly reflects their actual formation (e.g. 4-3-3, 
         });
 
         if (response.text) {
-          const report = JSON.parse(response.text.trim());
+          const report = JSON.parse(cleanJsonResponse(response.text));
           return res.json({ ...report, engine: "gemini" });
         }
       } catch (error) {
@@ -418,7 +424,7 @@ Ensure the lineup layout perfectly reflects their actual formation (e.g. 4-3-3, 
     if (ai) {
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-flash-latest",
+          model: "gemini-1.5-flash",
           contents: `Simulate a realistic, highly exciting, detailed football match between team A (${nameA}) and team B (${nameB}). 
 Write a complete match timeline detailing goals, yellow/red cards, near misses, or key events. 
 Ensure the final score feels representative of real-world strengths (for example, if a massive powerhouse plays a heavy underdog, the powerhouse is favored, but surprises can happen!).
@@ -482,7 +488,7 @@ Return the simulation strictly adhering to the JSON schema specified.`,
         });
 
         if (response.text) {
-          const result = JSON.parse(response.text.trim());
+          const result = JSON.parse(cleanJsonResponse(response.text));
           return res.json({ ...result, engine: "gemini" });
         }
       } catch (error) {
@@ -681,7 +687,7 @@ Return the simulation strictly adhering to the JSON schema specified.`,
     if (ai) {
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-flash-latest",
+          model: "gemini-1.5-flash",
           contents: `Perform a detailed, head-to-head tactical comparison between two football players: ${player1} and ${player2}.
 Provide realistic performance metrics (0-100), a concise summary of their playing style/role, and a final "Tactical Verdict" on who would be better suited for a high-intensity modern tactical system.
 Return the data in a clean JSON format.`,
@@ -736,7 +742,7 @@ Return the data in a clean JSON format.`,
         });
 
         if (response.text) {
-          const comparison = JSON.parse(response.text.trim());
+          const comparison = JSON.parse(cleanJsonResponse(response.text));
           return res.json({ ...comparison, engine: "gemini" });
         }
       } catch (error) {
@@ -784,7 +790,7 @@ Return the data in a clean JSON format.`,
       try {
         const lastMessage = messages[messages.length - 1].content;
         const response = await ai.models.generateContent({
-          model: "gemini-flash-latest",
+          model: "gemini-1.5-flash",
           contents: `You are an elite, world-class football (soccer) tactical coach and advisor. 
 You provide deep, expert-level analysis on formations, player roles, team dynamics, and historical tactical evolutions.
 Be professional, slightly analytical, and passionate about the "beautiful game". 
@@ -823,7 +829,7 @@ Context of user query: ${lastMessage}`,
     if (ai) {
       try {
         const response = await ai.models.generateContent({
-          model: "gemini-flash-latest",
+          model: "gemini-1.5-flash",
           contents: "Generate a tough, highly interesting multiple-choice football (soccer) trivia question about FIFA World Cup histories, football records, legendary players, or tactical concepts. Return options, a clear explanation, and a category tag.",
           config: {
             responseMimeType: "application/json",
@@ -842,7 +848,7 @@ Context of user query: ${lastMessage}`,
         });
 
         if (response.text) {
-          const quiz = JSON.parse(response.text.trim());
+          const quiz = JSON.parse(cleanJsonResponse(response.text));
           return res.json({ ...quiz, engine: "gemini" });
         }
       } catch (error) {
@@ -891,6 +897,251 @@ Context of user query: ${lastMessage}`,
 
     const randomQuiz = quizBank[Math.floor(Math.random() * quizBank.length)];
     res.json({ ...randomQuiz, engine: "fallback" as const });
+  });
+
+  // --- API ROUTE: Get MVP Prediction ---
+  app.post("/api/mvp-prediction", async (req, res) => {
+    const { teamA, teamB, events, scoreA, scoreB } = req.body;
+
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents: `Analyze the following football match events and scoreline to predict the Man of the Match (MVP).
+          Team A: ${teamA}
+          Team B: ${teamB}
+          Final Score: ${scoreA} - ${scoreB}
+          
+          Events:
+          ${JSON.stringify(events)}
+          
+          Return a JSON object with:
+          - player: The name of the predicted MVP (must be a player mentioned in the events or a logical star).
+          - team: The team they play for.
+          - reasoning: A 2-sentence tactical justification for why they deserve MVP based on the events.
+          - rating: A performance rating from 1 to 10 (e.g., 8.7).`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                player: { type: Type.STRING },
+                team: { type: Type.STRING },
+                reasoning: { type: Type.STRING },
+                rating: { type: Type.NUMBER }
+              },
+              required: ["player", "team", "reasoning", "rating"]
+            }
+          }
+        });
+
+        if (response.text) {
+          return res.json(JSON.parse(cleanJsonResponse(response.text)));
+        }
+      } catch (error) {
+        console.error("Gemini MVP Prediction failed:", error);
+      }
+    }
+
+    res.json({
+      player: scoreA > scoreB ? "Team A Star" : "Team B Star",
+      team: scoreA > scoreB ? teamA : teamB,
+      reasoning: "A dominant performance in a hard-fought match.",
+      rating: 8.5
+    });
+  });
+
+  // --- API ROUTE: Get Live Event Commentary ---
+  app.post("/api/event-commentary", async (req, res) => {
+    const { event, teamA, teamB } = req.body;
+
+    if (ai) {
+      try {
+        const response = await ai.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents: `Provide a punchy, exciting, and professional 1-sentence live commentary for this football match event.
+          Match: ${teamA} vs ${teamB}
+          Event: ${JSON.stringify(event)}
+          
+          Return a JSON object with:
+          - headline: A short 2-3 word headline (e.g., "GOAL!", "DRAMA!", "TACTICAL MOVE").
+          - commentary: The exciting 1-sentence reaction.`,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                headline: { type: Type.STRING },
+                commentary: { type: Type.STRING }
+              },
+              required: ["headline", "commentary"]
+            }
+          }
+        });
+
+        if (response.text) {
+          return res.json(JSON.parse(cleanJsonResponse(response.text)));
+        }
+      } catch (error) {
+        console.error("Gemini Event Commentary failed:", error);
+      }
+    }
+
+    // Fallback commentary
+    const fallbacks: Record<string, string> = {
+      goal: `Sensational goal by ${event.player}! The stadium is erupting!`,
+      card_yellow: `${event.player} goes into the book with a yellow card.`,
+      card_red: `UNBELIEVABLE! A red card for ${event.player}! A massive moment in the match!`,
+      substitution: `Tactical change: ${event.player} coming on.`,
+      chance: `A close call for ${event.team === 'A' ? teamA : teamB}!`,
+    };
+
+    res.json({
+      headline: event.type.toUpperCase().replace('_', ' '),
+      commentary: fallbacks[event.type] || event.description
+    });
+  });
+
+  // --- API ROUTE: Send Gmail Match Report ---
+  app.post("/api/gmail/send", async (req, res) => {
+    const { to, subject, body, accessToken } = req.body;
+
+    if (!accessToken) {
+      return res.status(401).json({ error: "No access token provided" });
+    }
+
+    try {
+      const auth = new google.auth.OAuth2();
+      auth.setCredentials({ access_token: accessToken });
+
+      const gmail = google.gmail({ version: 'v1', auth });
+
+      // Create RFC822 message
+      const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+      const messageParts = [
+        `To: ${to}`,
+        'Content-Type: text/html; charset=utf-8',
+        'MIME-Version: 1.0',
+        `Subject: ${utf8Subject}`,
+        '',
+        body,
+      ];
+      const message = messageParts.join('\n');
+
+      // The body needs to be base64url encoded.
+      const encodedMessage = Buffer.from(message)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      await gmail.users.messages.send({
+        userId: 'me',
+        requestBody: {
+          raw: encodedMessage,
+        },
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Gmail Send Error:", error);
+      res.status(500).json({ error: error.message || "Failed to send email" });
+    }
+  });
+
+  // --- API ROUTE: Save to Google Drive ---
+  app.post("/api/drive/save", async (req, res) => {
+    const { name, content, mimeType, accessToken } = req.body;
+
+    if (!accessToken) {
+      return res.status(401).json({ error: "No access token provided" });
+    }
+
+    try {
+      const auth = new google.auth.OAuth2();
+      auth.setCredentials({ access_token: accessToken });
+
+      const drive = google.drive({ version: 'v3', auth });
+
+      const fileMetadata = {
+        name: name || 'Match Report.html',
+        mimeType: mimeType || 'text/html',
+      };
+
+      const media = {
+        mimeType: mimeType || 'text/html',
+        body: content,
+      };
+
+      const file = await drive.files.create({
+        requestBody: fileMetadata,
+        media: media,
+        fields: 'id, webViewLink',
+      });
+
+      res.json({ success: true, fileId: file.data.id, link: file.data.webViewLink });
+    } catch (error: any) {
+      console.error("Drive Save Error:", error);
+      res.status(500).json({ error: error.message || "Failed to save to Drive" });
+    }
+  });
+
+  // --- API ROUTE: List Google Drive Files ---
+  app.get("/api/drive/list", async (req, res) => {
+    const accessToken = req.headers.authorization?.split(' ')[1];
+    const search = req.query.search as string;
+
+    if (!accessToken) {
+      return res.status(401).json({ error: "No access token provided" });
+    }
+
+    try {
+      const auth = new google.auth.OAuth2();
+      auth.setCredentials({ access_token: accessToken });
+
+      const drive = google.drive({ version: 'v3', auth });
+
+      let query = "trashed = false";
+      if (search) {
+        query += ` and name contains '${search}'`;
+      }
+
+      const response = await drive.files.list({
+        pageSize: 20,
+        fields: 'nextPageToken, files(id, name, mimeType, webViewLink, thumbnailLink, createdTime)',
+        q: query,
+        orderBy: 'createdTime desc'
+      });
+
+      res.json({ files: response.data.files });
+    } catch (error: any) {
+      console.error("Drive List Error:", error);
+      res.status(500).json({ error: error.message || "Failed to list Drive files" });
+    }
+  });
+
+  // --- API ROUTE: Delete Google Drive File ---
+  app.delete("/api/drive/delete/:fileId", async (req, res) => {
+    const accessToken = req.headers.authorization?.split(' ')[1];
+    const { fileId } = req.params;
+
+    if (!accessToken) {
+      return res.status(401).json({ error: "No access token provided" });
+    }
+
+    try {
+      const auth = new google.auth.OAuth2();
+      auth.setCredentials({ access_token: accessToken });
+
+      const drive = google.drive({ version: 'v3', auth });
+
+      await drive.files.delete({ fileId });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Drive Delete Error:", error);
+      res.status(500).json({ error: error.message || "Failed to delete file" });
+    }
   });
 
   // --- VITE MIDDLEWARE SETUP ---

@@ -1,0 +1,154 @@
+{
+  "entities": {
+    "ScoutingReport": {
+      "title": "Scouting Report",
+      "description": "Tactical analysis of a national team",
+      "type": "object",
+      "properties": {
+        "country": { "type": "string" },
+        "formation": { "type": "string" },
+        "styleOfPlay": { "type": "string" },
+        "strengths": { "type": "array" },
+        "weaknesses": { "type": "array" },
+        "tacticalRating": { "type": "number" },
+        "defenseRating": { "type": "number" },
+        "attackRating": { "type": "number" },
+        "midfieldRating": { "type": "number" },
+        "keyPlayers": { "type": "array" },
+        "lineup": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["country", "formation", "styleOfPlay"]
+    },
+    "SimulationResult": {
+      "title": "Match Simulation",
+      "description": "Result of a match simulation",
+      "type": "object",
+      "properties": {
+        "teamA": { "type": "string" },
+        "teamB": { "type": "string" },
+        "scoreA": { "type": "number" },
+        "scoreB": { "type": "number" },
+        "stats": { "type": "object" },
+        "events": { "type": "array" },
+        "highlights": { "type": "array" },
+        "manOfTheMatch": { "type": "object" },
+        "simulatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["teamA", "teamB", "scoreA", "scoreB"]
+    },
+    "NewsArticle": {
+      "title": "News Article",
+      "description": "World Cup news article",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "summary": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "imageSeed": { "type": "string" },
+        "source": { "type": "string" }
+      },
+      "required": ["title", "content"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "settings": { "type": "object" }
+      },
+      "required": ["uid", "email"]
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "A single message in a tactical chat session",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string" },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" }
+      },
+      "required": ["role", "content", "userId"]
+    },
+    "PlayerComparison": {
+      "title": "Player Comparison",
+      "description": "Tactical comparison between two players",
+      "type": "object",
+      "properties": {
+        "player1": { "type": "string" },
+        "player2": { "type": "string" },
+        "comparisonData": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" }
+      },
+      "required": ["player1", "player2", "userId"]
+    },
+    "TournamentState": {
+      "title": "Tournament State",
+      "description": "Persistent state of a user's tournament",
+      "type": "object",
+      "properties": {
+        "groups": { "type": "array" },
+        "bracket": { "type": "array" },
+        "groupsSimulated": { "type": "boolean" },
+        "champion": { "type": ["string", "null"] },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "userId": { "type": "string" }
+      },
+      "required": ["groups", "bracket", "groupsSimulated", "userId"]
+    },
+    "HighScore": {
+      "title": "High Score",
+      "description": "User trivia high scores",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "score": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "score"]
+    }
+  },
+  "firestore": {
+    "/high_scores/{scoreId}": {
+      "schema": "HighScore",
+      "description": "Trivia leaderboards"
+    },
+    "/scouting_reports/{reportId}": {
+      "schema": "ScoutingReport",
+      "description": "Stored scouting reports"
+    },
+    "/matches/{matchId}": {
+      "schema": "SimulationResult",
+      "description": "Simulated match history"
+    },
+    "/tournaments/{userId}": {
+      "schema": "TournamentState",
+      "description": "Active tournament state for a user"
+    },
+    "/chats/{chatId}": {
+      "schema": "ChatMessage",
+      "description": "Tactical advisor chat history"
+    },
+    "/comparisons/{comparisonId}": {
+      "schema": "PlayerComparison",
+      "description": "Historical player comparisons"
+    },
+    "/news/{newsId}": {
+      "schema": "NewsArticle",
+      "description": "Cached news articles"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    }
+  }
+}

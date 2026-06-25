@@ -6,11 +6,14 @@ import TournamentCenter from "./components/TournamentCenter";
 import TriviaQuiz from "./components/TriviaQuiz";
 import TacticalAdvisor from "./components/TacticalAdvisor";
 import LiveTV from "./components/LiveTV";
-import { Trophy, Shield, Newspaper, Brain, Activity, Menu, X, Sparkles, Sun, Moon, Zap, MessageSquare, Tv, Volume2, VolumeX } from "lucide-react";
+import NexusView from "./components/NexusView";
+import { AuthStatus } from "./components/AuthStatus";
+import { MyDocs } from "./components/MyDocs";
+import { Trophy, Shield, Newspaper, Brain, Activity, Menu, X, Sparkles, Sun, Moon, Zap, MessageSquare, Tv, Volume2, VolumeX, Globe, HardDrive } from "lucide-react";
 import { Atmosphere } from "./types";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"sim" | "tournament" | "scout" | "advisor" | "news" | "quiz" | "live">("sim");
+  const [activeTab, setActiveTab] = useState<"sim" | "tournament" | "scout" | "advisor" | "news" | "quiz" | "live" | "nexus" | "archive">("sim");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [atmosphere, setAtmosphere] = useState<Atmosphere>("night");
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
@@ -30,7 +33,9 @@ export default function App() {
     { id: "scout", label: "SCOUTING DECK", icon: <Shield className="w-4 h-4" /> },
     { id: "advisor", label: "TACTICAL ADVISOR", icon: <MessageSquare className="w-4 h-4" /> },
     { id: "news", label: "NEWS ROOM", icon: <Newspaper className="w-4 h-4" /> },
+    { id: "nexus", label: "NEXUS", icon: <Globe className="w-4 h-4" /> },
     { id: "quiz", label: "TRIVIA ARENA", icon: <Brain className="w-4 h-4" /> },
+    { id: "archive", label: "ARCHIVE", icon: <HardDrive className="w-4 h-4" /> },
   ] as const;
 
   const renderActiveModule = () => {
@@ -42,6 +47,8 @@ export default function App() {
       case "advisor": return <TacticalAdvisor />;
       case "news": return <NewsFeed />;
       case "quiz": return <TriviaQuiz />;
+      case "nexus": return <NexusView />;
+      case "archive": return <MyDocs />;
       default: return <MatchSim />;
     }
   };
@@ -125,7 +132,7 @@ export default function App() {
               <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
               <span className={atmosphere === 'day' ? 'text-slate-600' : 'text-slate-300'}>2,408,122 WATCHING LIVE</span>
             </div>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-200 shadow-md shadow-amber-500/10 border border-white/20"></div>
+            <AuthStatus />
           </div>
 
           {/* Mobile Menu Button */}

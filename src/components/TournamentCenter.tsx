@@ -1,7 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { TournamentGroup, GroupTeam, BracketMatch } from "../types";
 import { Trophy, RefreshCw, Award, Sparkles, ChevronRight, Activity, Zap, TrendingUp, BarChart3, Globe, ShieldCheck, Timer } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useFirebase } from "./FirebaseProvider";
+import { handleFirestoreError, OperationType } from "../lib/firebaseUtils";
 
 // Standard ratings for simulation weights
 const TEAM_RATINGS: Record<string, number> = {
@@ -64,12 +68,61 @@ const INITIAL_BRACKET: BracketMatch[] = [
 ];
 
 export default function TournamentCenter() {
+  const { user } = useFirebase();
   const [groups, setGroups] = useState<TournamentGroup[]>(INITIAL_GROUPS);
   const [bracket, setBracket] = useState<BracketMatch[]>(INITIAL_BRACKET);
   const [activeTab, setActiveTab] = useState<"groups" | "bracket">("groups");
   const [groupsSimulated, setGroupsSimulated] = useState<boolean>(false);
   const [champion, setChampion] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Load state from Firebase
+  useEffect(() => {
+    if (!user) return;
+
+    const loadTournament = async () => {
+      setIsSyncing(true);
+      try {
+        const docRef = doc(db, "tournaments", user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setGroups(data.groups);
+          setBracket(data.bracket);
+          setGroupsSimulated(data.groupsSimulated);
+          setChampion(data.champion);
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.GET, "tournaments");
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
+    loadTournament();
+  }, [user]);
+
+  // Persist state to Firebase
+  const saveTournament = async (
+    updatedGroups: TournamentGroup[], 
+    updatedBracket: BracketMatch[], 
+    simulated: boolean, 
+    win: string | null
+  ) => {
+    if (!user) return;
+    try {
+      await setDoc(doc(db, "tournaments", user.uid), {
+        groups: updatedGroups,
+        bracket: updatedBracket,
+        groupsSimulated: simulated,
+        champion: win,
+        userId: user.uid,
+        lastUpdated: serverTimestamp()
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, "tournaments");
+    }
+  };
 
   // Tournament-wide aggregate stats
   const totalGoals = groups.reduce((acc, g) => acc + g.teams.reduce((ta, t) => ta + t.gf, 0), 0) + 
@@ -145,15 +198,6 @@ export default function TournamentCenter() {
         };
       });
 
-      setGroups(updatedGroups);
-      setGroupsSimulated(true);
-
-      const seedQF = (id: string, teamA: string, teamB: string) => {
-        setBracket((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, teamA, teamB, scoreA: undefined, scoreB: undefined, winner: undefined, simulated: false } : m))
-        );
-      };
-
       const a1 = updatedGroups[0].teams[0].name;
       const a2 = updatedGroups[0].teams[1].name;
       const b1 = updatedGroups[1].teams[0].name;
@@ -163,28 +207,31 @@ export default function TournamentCenter() {
       const d1 = updatedGroups[3].teams[0].name;
       const d2 = updatedGroups[3].teams[1].name;
 
-      seedQF("qf1", a1, b2);
-      seedQF("qf2", c1, d2);
-      seedQF("qf3", b1, a2);
-      seedQF("qf4", d1, c2);
+      const nextBracket = bracket.map((m) => {
+        if (m.id === "qf1") return { ...m, teamA: a1, teamB: b2, simulated: false, winner: undefined, scoreA: undefined, scoreB: undefined };
+        if (m.id === "qf2") return { ...m, teamA: c1, teamB: d2, simulated: false, winner: undefined, scoreA: undefined, scoreB: undefined };
+        if (m.id === "qf3") return { ...m, teamA: b1, teamB: a2, simulated: false, winner: undefined, scoreA: undefined, scoreB: undefined };
+        if (m.id === "qf4") return { ...m, teamA: d1, teamB: c2, simulated: false, winner: undefined, scoreA: undefined, scoreB: undefined };
+        if (m.stage === "SF" || m.stage === "F") {
+          return {
+            ...m,
+            teamA: m.stage === "SF" ? (m.id === "sf1" ? "QF1 Winner" : "QF3 Winner") : "SF1 Winner",
+            teamB: m.stage === "SF" ? (m.id === "sf2" ? "QF2 Winner" : "QF4 Winner") : "SF2 Winner",
+            scoreA: undefined,
+            scoreB: undefined,
+            winner: undefined,
+            simulated: false
+          };
+        }
+        return m;
+      });
 
-      setBracket((prev) =>
-        prev.map((m) =>
-          m.stage === "SF" || m.stage === "F"
-            ? {
-                ...m,
-                teamA: m.stage === "SF" ? (m.id === "sf1" ? "QF1 Winner" : "QF3 Winner") : "SF1 Winner",
-                teamB: m.stage === "SF" ? (m.id === "sf2" ? "QF2 Winner" : "QF4 Winner") : "SF2 Winner",
-                scoreA: undefined,
-                scoreB: undefined,
-                winner: undefined,
-                simulated: false
-              }
-            : m
-        )
-      );
+      setGroups(updatedGroups);
+      setGroupsSimulated(true);
+      setBracket(nextBracket);
       setChampion(null);
       setIsSyncing(false);
+      saveTournament(updatedGroups, nextBracket, true, null);
     }, 800);
   };
 
@@ -203,44 +250,95 @@ export default function TournamentCenter() {
 
     const winner = scoreA > scoreB ? match.teamA : match.teamB;
 
-    setBracket((prev) =>
-      prev.map((m) => (m.id === matchId ? { ...m, scoreA, scoreB, winner, simulated: true } : m))
-    );
-
-    promoteWinner(matchId, winner);
-  };
-
-  const promoteWinner = (matchId: string, winner: string) => {
-    setBracket((prev) => {
-      return prev.map((m) => {
-        if (m.stage === "SF") {
-          if (matchId === "qf1" && m.id === "sf1") return { ...m, teamA: winner };
-          if (matchId === "qf2" && m.id === "sf1") return { ...m, teamB: winner };
-          if (matchId === "qf3" && m.id === "sf2") return { ...m, teamA: winner };
-          if (matchId === "qf4" && m.id === "sf2") return { ...m, teamB: winner };
-        }
-        if (m.stage === "F") {
-          if (matchId === "sf1" && m.id === "f1") return { ...m, teamA: winner };
-          if (matchId === "sf2" && m.id === "f1") return { ...m, teamB: winner };
-        }
-        return m;
-      });
+    const nextBracket = bracket.map((m) => {
+      if (m.id === matchId) return { ...m, scoreA, scoreB, winner, simulated: true };
+      
+      // Promote winner
+      if (m.stage === "SF") {
+        if (matchId === "qf1" && m.id === "sf1") return { ...m, teamA: winner };
+        if (matchId === "qf2" && m.id === "sf1") return { ...m, teamB: winner };
+        if (matchId === "qf3" && m.id === "sf2") return { ...m, teamA: winner };
+        if (matchId === "qf4" && m.id === "sf2") return { ...m, teamB: winner };
+      }
+      if (m.stage === "F") {
+        if (matchId === "sf1" && m.id === "f1") return { ...m, teamA: winner };
+        if (matchId === "sf2" && m.id === "f1") return { ...m, teamB: winner };
+      }
+      return m;
     });
 
+    setBracket(nextBracket);
+    let win = champion;
     if (matchId === "f1") {
       setChampion(winner);
+      win = winner;
     }
+    saveTournament(groups, nextBracket, groupsSimulated, win);
   };
 
   const simulateWholePlayoff = () => {
     setIsSyncing(true);
     setTimeout(() => {
-      if (!groupsSimulated) {
-        simulateGroups();
+      let currentGroups = groups;
+      let simulated = groupsSimulated;
+      let currentBracket = [...bracket];
+      
+      if (!simulated) {
+        // Simulate groups first
+        currentGroups = groups.map((group) => {
+          const teamsMap: Record<string, GroupTeam> = {};
+          group.teams.forEach((t) => {
+            teamsMap[t.name] = { name: t.name, played: 0, won: 0, drawn: 0, lost: 0, gf: 0, ga: 0, gd: 0, points: 0 };
+          });
+
+          const list = Object.keys(teamsMap);
+          for (let i = 0; i < list.length; i++) {
+            for (let j = i + 1; j < list.length; j++) {
+              const nameA = list[i];
+              const nameB = list[j];
+              const { scoreA, scoreB } = simSingleMatch(nameA, nameB);
+              teamsMap[nameA].played++;
+              teamsMap[nameA].gf += scoreA;
+              teamsMap[nameA].ga += scoreB;
+              teamsMap[nameA].gd = teamsMap[nameA].gf - teamsMap[nameA].ga;
+              teamsMap[nameB].played++;
+              teamsMap[nameB].gf += scoreB;
+              teamsMap[nameB].ga += scoreA;
+              teamsMap[nameB].gd = teamsMap[nameB].gf - teamsMap[nameB].ga;
+              if (scoreA > scoreB) { teamsMap[nameA].won++; teamsMap[nameA].points += 3; teamsMap[nameB].lost++; }
+              else if (scoreB > scoreA) { teamsMap[nameB].won++; teamsMap[nameB].points += 3; teamsMap[nameA].lost++; }
+              else { teamsMap[nameA].drawn++; teamsMap[nameA].points += 1; teamsMap[nameB].drawn++; teamsMap[nameB].points += 1; }
+            }
+          }
+          const sortedTeams = Object.values(teamsMap).sort((a, b) => {
+            if (b.points !== a.points) return b.points - a.points;
+            if (b.gd !== a.gd) return b.gd - a.gd;
+            return b.gf - a.gf;
+          });
+          return { letter: group.letter, teams: sortedTeams };
+        });
+
+        // Seed bracket
+        const a1 = currentGroups[0].teams[0].name;
+        const a2 = currentGroups[0].teams[1].name;
+        const b1 = currentGroups[1].teams[0].name;
+        const b2 = currentGroups[1].teams[1].name;
+        const c1 = currentGroups[2].teams[0].name;
+        const c2 = currentGroups[2].teams[1].name;
+        const d1 = currentGroups[3].teams[0].name;
+        const d2 = currentGroups[3].teams[1].name;
+
+        currentBracket = currentBracket.map((m) => {
+          if (m.id === "qf1") return { ...m, teamA: a1, teamB: b2 };
+          if (m.id === "qf2") return { ...m, teamA: c1, teamB: d2 };
+          if (m.id === "qf3") return { ...m, teamA: b1, teamB: a2 };
+          if (m.id === "qf4") return { ...m, teamA: d1, teamB: c2 };
+          return m;
+        });
+        simulated = true;
       }
       
       const order = ["qf1", "qf2", "qf3", "qf4", "sf1", "sf2", "f1"];
-      let currentBracket = [...bracket];
       
       order.forEach((mid) => {
         const match = currentBracket.find((m) => m.id === mid);
@@ -259,6 +357,8 @@ export default function TournamentCenter() {
           tA = currentBracket.find(m => m.id === "sf1")?.winner || "SF1 Winner";
           tB = currentBracket.find(m => m.id === "sf2")?.winner || "SF2 Winner";
         }
+
+        if (tA.includes("Winner") || tB.includes("Winner")) return;
 
         let { scoreA, scoreB } = simSingleMatch(tA, tB);
         if (scoreA === scoreB) {
@@ -284,10 +384,13 @@ export default function TournamentCenter() {
         });
       });
 
+      setGroups(currentGroups);
+      setGroupsSimulated(simulated);
       setBracket(currentBracket);
       const finalWin = currentBracket.find((m) => m.id === "f1")?.winner || null;
       setChampion(finalWin);
       setIsSyncing(false);
+      saveTournament(currentGroups, currentBracket, simulated, finalWin);
     }, 1500);
   };
 
@@ -296,6 +399,7 @@ export default function TournamentCenter() {
     setBracket(INITIAL_BRACKET);
     setGroupsSimulated(false);
     setChampion(null);
+    saveTournament(INITIAL_GROUPS, INITIAL_BRACKET, false, null);
   };
 
   return (

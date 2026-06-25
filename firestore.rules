@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Primitive Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // 3. Entity Validation Helpers
+    function isValidScoutingReport(data) {
+      return data.keys().hasAll(['country', 'formation', 'styleOfPlay']) &&
+             data.country is string && data.country.size() <= 100 &&
+             data.formation is string && data.formation.size() <= 50 &&
+             data.styleOfPlay is string && data.styleOfPlay.size() <= 500;
+    }
+
+    function isValidMatchResult(data) {
+      return data.keys().hasAll(['teamA', 'teamB', 'scoreA', 'scoreB']) &&
+             data.teamA is string && data.teamA.size() <= 100 &&
+             data.teamB is string && data.teamB.size() <= 100 &&
+             data.scoreA is number && data.scoreA >= 0 &&
+             data.scoreB is number && data.scoreB >= 0;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) &&
+             data.uid == request.auth.uid &&
+             data.email is string && data.email.size() <= 255;
+    }
+
+    function isValidNews(data) {
+      return data.keys().hasAll(['title', 'content']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.content is string && data.content.size() <= 10000;
+    }
+
+    // 4. Collection Rules
+    match /scouting_reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(reportId) && isValidScoutingReport(incoming());
+      allow update: if isSignedIn() && isValidId(reportId) && isValidScoutingReport(incoming());
+      allow delete: if false;
+    }
+
+    match /matches/{matchId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(matchId) && isValidMatchResult(incoming());
+      allow update: if isSignedIn() && isValidId(matchId) && isValidMatchResult(incoming());
+      allow delete: if false;
+    }
+
+    match /tournaments/{userId} {
+      allow read: if isSignedIn() && userId == request.auth.uid;
+      allow write: if isSignedIn() && userId == request.auth.uid;
+    }
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /comparisons/{comparisonId} {
+      allow read: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /high_scores/{scoreId} {
+      allow read: if true;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && incoming().userId == request.auth.uid && incoming().score > existing().score;
+      allow delete: if false;
+    }
+
+    match /news/{newsId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false; // No listing users
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings']);
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "FIFA Hub",
-  "description": "An interactive football hub featuring live match simulators, scouting reports, real-time results, brackets, news, and soccer quizzes powered by Gemini.",
+  "description": "An elite football hub featuring AI-powered tactical advisors, scouting reports, persistent match history, player comparisons, and a secure global Nexus portal. Built with Firebase and Gemini.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,8 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
 import { SimulationResult, MatchEvent } from "../types";
-import { Play, RotateCcw, Award, Clock, Activity, Sliders, AlertCircle, Sparkles, ChevronRight, Star, User, Zap, Globe, ShieldCheck, Gauge, Wifi, RefreshCw } from "lucide-react";
+import { Play, RotateCcw, Award, Clock, Activity, Sliders, AlertCircle, Sparkles, ChevronRight, Star, User, Zap, Globe, ShieldCheck, Gauge, Wifi, RefreshCw, History, BellRing } from "lucide-react";
 import { audioManager } from "../lib/audio";
 import { motion, AnimatePresence } from "motion/react";
+import MVPPredictor from "./MVPPredictor";
+import { GmailShare } from "./GmailShare";
+import { DriveShare } from "./DriveShare";
+import { Toaster, toast } from 'sonner';
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { handleFirestoreError, OperationType } from '../lib/firebaseUtils';
+import { useFirebase } from "./FirebaseProvider";
 
 const NATIONS = [
   { name: "Argentina", rating: 92 },
@@ -22,10 +30,12 @@ interface MatchSimProps {
 }
 
 export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
+  const { user } = useFirebase();
   const [teamA, setTeamA] = useState<string>("Argentina");
   const [teamB, setTeamB] = useState<string>("Brazil");
   const [loading, setLoading] = useState<boolean>(false);
   const [simResult, setSimResult] = useState<SimulationResult | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
   
   // Real-time ticking engine states
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -115,6 +125,23 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
             setIsFinished(true);
             setCrowdIntensity(15);
             if (timerRef.current) clearInterval(timerRef.current);
+            
+            // Save to history if user is logged in
+            if (user && simResult) {
+              addDoc(collection(db, "matches"), {
+                teamA: simResult.teamA,
+                teamB: simResult.teamB,
+                scoreA: simResult.scoreA,
+                scoreB: simResult.scoreB,
+                stats: simResult.stats,
+                events: simResult.events,
+                highlights: simResult.highlights || [],
+                manOfTheMatch: simResult.manOfTheMatch || null,
+                simulatedAt: serverTimestamp(),
+                userId: user.uid
+              }).catch(err => handleFirestoreError(err, OperationType.CREATE, "matches"));
+            }
+            
             return 90;
           }
           return nextMin;
@@ -125,7 +152,30 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isPlaying, simResult]);
+  }, [isPlaying, simResult, user]);
+
+  // Fetch History
+  useEffect(() => {
+    if (!user) {
+      setHistory([]);
+      return;
+    }
+
+    const q = query(
+      collection(db, "matches"),
+      orderBy("simulatedAt", "desc"),
+      limit(5)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      setHistory(docs);
+    }, (err) => {
+      handleFirestoreError(err, OperationType.LIST, "matches");
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const resetSimulator = () => {
     setIsPlaying(false);
@@ -155,6 +205,45 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
 
   const { scoreA: liveScoreA, scoreB: liveScoreB } = getCurrentScore();
 
+  // Notification logic for significant events
+  useEffect(() => {
+    if (!isPlaying || visibleEvents.length === 0) return;
+    
+    const latestEvent = visibleEvents[0];
+    const significantTypes = ['goal', 'card_red', 'card_yellow', 'substitution'];
+    
+    if (significantTypes.includes(latestEvent.type)) {
+      const triggerNotification = async () => {
+        try {
+          const response = await fetch("/api/event-commentary", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event: latestEvent, teamA, teamB }),
+          });
+          
+          if (!response.ok) throw new Error("Commentary failed");
+          const data = await response.json();
+          
+          toast(data.headline, {
+            description: data.commentary,
+            duration: 5000,
+            icon: <BellRing className="w-4 h-4 text-amber-500" />,
+            className: "bg-zinc-900 border border-white/10 text-white rounded-2xl p-4 shadow-2xl",
+          });
+        } catch (err) {
+          // Fallback if AI fails
+          toast(latestEvent.type.toUpperCase().replace('_', ' '), {
+            description: latestEvent.description,
+            duration: 4000,
+            className: "bg-zinc-900 border border-white/10 text-white rounded-2xl p-4 shadow-2xl",
+          });
+        }
+      };
+      
+      triggerNotification();
+    }
+  }, [visibleEvents.length, isPlaying]); // Depend on length to trigger only on new events
+
   const getEventStyle = (type: string) => {
     switch (type) {
       case 'goal': return 'border-l-4 border-amber-500 bg-amber-500/10 text-amber-300';
@@ -167,6 +256,7 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
 
   return (
     <div id="match-sim-module" className="space-y-6">
+      <Toaster position="top-right" theme="dark" />
       
       {/* Simulation Dashboard */}
       {!simResult && !loading && (
@@ -227,6 +317,52 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
               <Play className="w-4 h-4 fill-black" />
               EXECUTE SIMULATION
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* History Feed */}
+      {!simResult && !loading && history.length > 0 && (
+        <div className="max-w-3xl mx-auto space-y-4">
+          <div className="flex items-center gap-2 px-2">
+            <History className="w-4 h-4 text-slate-500" />
+            <h3 className="text-[10px] font-mono text-slate-500 font-black uppercase tracking-[0.2em]">Recent Simulation Logs</h3>
+          </div>
+          <div className="space-y-2">
+            {history.map((match) => (
+              <div key={match.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between hover:bg-white/[0.08] transition-all group">
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-sm font-black text-white italic uppercase">{match.teamA}</p>
+                  </div>
+                  <div className="bg-black/40 px-3 py-1 rounded-lg border border-white/10 text-xs font-mono font-black text-amber-500">
+                    {match.scoreA} : {match.scoreB}
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-white italic uppercase">{match.teamB}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                   <div className="text-right hidden sm:block">
+                     <p className="text-[8px] font-mono text-slate-500 uppercase font-black">
+                       {match.simulatedAt?.toDate ? match.simulatedAt.toDate().toLocaleDateString() : 'Recent'}
+                     </p>
+                     <p className="text-[8px] font-mono text-emerald-500 uppercase font-black">Archive Verified</p>
+                   </div>
+                   <button 
+                    onClick={() => {
+                      setSimResult(match as any);
+                      setIsFinished(true);
+                      setCurrentMinute(90);
+                      setVisibleEvents((match as any).events || []);
+                    }}
+                    className="p-2 hover:bg-amber-500 hover:text-black rounded-lg border border-white/10 transition-all text-slate-500"
+                   >
+                     <ChevronRight className="w-4 h-4" />
+                   </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -409,38 +545,70 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
                 </div>
               </div>
 
-              {/* Man of the Match Verdict */}
-              {isFinished && simResult.manOfTheMatch && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-3xl p-6 text-black relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 p-4 opacity-10">
-                    <Award className="w-24 h-24" />
-                  </div>
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="w-8 h-8 rounded-lg bg-black/10 border border-black/10 flex items-center justify-center">
-                      <Star className="w-4 h-4 fill-current" />
-                    </div>
-                    <span className="text-[10px] font-mono font-black uppercase tracking-[0.2em]">Match Excellence Award</span>
-                  </div>
-                  
-                  <div className="flex items-center gap-5">
-                    <div className="w-20 h-20 bg-black rounded-2xl border-2 border-white/20 flex items-center justify-center">
-                      <User className="w-10 h-10 text-white/40" />
-                    </div>
-                    <div className="space-y-1">
-                      <h3 className="text-2xl font-black uppercase italic tracking-tighter leading-none">{simResult.manOfTheMatch.name}</h3>
-                      <p className="text-[10px] font-black uppercase tracking-widest">{simResult.manOfTheMatch.team}</p>
-                      <div className="pt-2 flex items-center gap-2">
-                        <div className="bg-black text-amber-500 px-3 py-1 rounded-lg text-[10px] font-black font-mono">
-                          RATING: {simResult.manOfTheMatch.rating.toFixed(1)}
+              {/* AI-Powered MVP Prediction */}
+              <MVPPredictor 
+                teamA={teamA} 
+                teamB={teamB} 
+                scoreA={liveScoreA} 
+                scoreB={liveScoreB} 
+                events={visibleEvents} 
+                isFinished={isFinished} 
+              />
+
+              {/* Workspace Sharing Actions */}
+              {isFinished && (
+                <div className="pt-4 border-t border-white/5 space-y-3">
+                  <GmailShare 
+                    subject={`Match Report: ${teamA} ${liveScoreA} - ${liveScoreB} ${teamB}`}
+                    body={`
+                      <div style="font-family: sans-serif; background-color: #050811; color: white; padding: 40px; border-radius: 20px;">
+                        <h1 style="color: #f59e0b; font-style: italic; margin-bottom: 20px;">FIFA HUB: MATCH REPORT</h1>
+                        <div style="font-size: 24px; font-weight: 900; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px; margin-bottom: 20px;">
+                          ${teamA} ${liveScoreA} - ${liveScoreB} ${teamB}
+                        </div>
+                        <div style="color: #94a3b8; font-size: 14px; margin-bottom: 30px;">
+                          Final Score from the Nexus Tactical Arena.
+                        </div>
+                        <h2 style="font-size: 16px; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b;">Match Events</h2>
+                        <ul style="list-style: none; padding: 0;">
+                          ${visibleEvents.map(ev => `
+                            <li style="padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                              <strong style="color: #f59e0b; font-family: monospace;">${ev.minute}'</strong> 
+                              <span style="margin-left: 10px;">${ev.description}</span>
+                            </li>
+                          `).join('')}
+                        </ul>
+                        <div style="margin-top: 40px; font-size: 12px; color: #475569;">
+                          Report generated by Gemini AI Simulation.
                         </div>
                       </div>
-                    </div>
-                  </div>
-                </motion.div>
+                    `}
+                    className="w-full justify-center py-4"
+                  />
+                  
+                  <DriveShare
+                    fileName={`Match_Report_${teamA}_vs_${teamB}.html`}
+                    content={`
+                      <div style="font-family: sans-serif; background-color: #050811; color: white; padding: 40px; border-radius: 20px;">
+                        <h1 style="color: #f59e0b; font-style: italic; margin-bottom: 20px;">FIFA HUB: MATCH ARCHIVE</h1>
+                        <div style="font-size: 24px; font-weight: 900; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px; margin-bottom: 20px;">
+                          ${teamA} ${liveScoreA} - ${liveScoreB} ${teamB}
+                        </div>
+                        <h2 style="font-size: 16px; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b;">Match Events</h2>
+                        <ul style="list-style: none; padding: 0;">
+                          ${visibleEvents.map(ev => `
+                            <li style="padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                              <strong style="color: #f59e0b; font-family: monospace;">${ev.minute}'</strong> 
+                              <span style="margin-left: 10px;">${ev.description}</span>
+                            </li>
+                          `).join('')}
+                        </ul>
+                      </div>
+                    `}
+                    buttonText="Archive to Drive"
+                    className="w-full justify-center py-4"
+                  />
+                </div>
               )}
             </div>
           </div>

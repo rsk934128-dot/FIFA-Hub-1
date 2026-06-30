@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { TournamentGroup, GroupTeam, BracketMatch } from "../types";
-import { Trophy, RefreshCw, Award, Sparkles, ChevronRight, Activity, Zap, TrendingUp, BarChart3, Globe, ShieldCheck, Timer } from "lucide-react";
+import { Trophy, RefreshCw, Award, Sparkles, ChevronRight, Activity, Zap, TrendingUp, BarChart3, Globe, ShieldCheck, Timer, Calendar, ChevronLeft, Bookmark, BookmarkCheck, CalendarCheck, Plus, Trash2, Info, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -67,14 +67,88 @@ const INITIAL_BRACKET: BracketMatch[] = [
   { id: "f1", stage: "F", teamA: "SF1 Winner", teamB: "SF2 Winner", simulated: false }
 ];
 
+export interface CalendarEvent {
+  id: string;
+  date: string; // YYYY-MM-DD
+  title: string;
+  type: 'fixture' | 'deadline' | 'history';
+  description: string;
+  teamA?: string;
+  teamB?: string;
+  time?: string;
+  score?: string;
+}
+
+const DEFAULT_EVENTS: CalendarEvent[] = [
+  // June 2026 - History
+  { id: "e1", date: "2026-06-10", title: "Group A Opening: Argentina vs Canada", type: "history", description: "Argentina defeated Canada 2-0 with an outstanding playmaking display from Lionel Messi.", score: "2-0", teamA: "Argentina", teamB: "Canada" },
+  { id: "e2", date: "2026-06-12", title: "Group B Opener: France vs Austria", type: "history", description: "France squeezed past Austria with a narrow 1-0 win from an own goal.", score: "1-0", teamA: "France", teamB: "Austria" },
+  { id: "e3", date: "2026-06-14", title: "Group C Blockbuster: Brazil vs Colombia", type: "history", description: "Brazil and Colombia shared the points in a thrilling 2-2 draw in group C.", score: "2-2", teamA: "Brazil", teamB: "Colombia" },
+  { id: "e4", date: "2026-06-18", title: "Group stage Peak: Argentina vs Chile", type: "history", description: "Argentina secured early playoff entry with a solid 1-0 clean sheet over Chile.", score: "1-0", teamA: "Argentina", teamB: "Chile" },
+  { id: "e5", date: "2026-06-20", title: "Group stage Battle: France vs Netherlands", type: "history", description: "A highly strategic midfield masterclass ended in a goalless draw.", score: "0-0", teamA: "France", teamB: "Netherlands" },
+  { id: "e6", date: "2026-06-24", title: "Final Group A Decider: Canada vs Peru", type: "history", description: "Canada claimed group runner-up with a late 1-0 goal in the 88th minute.", score: "1-0", teamA: "Canada", teamB: "Peru" },
+  
+  // June 2026 - Deadlines & Milestones
+  { id: "e7", date: "2026-06-01", title: "Early Squad Roster Submissions", type: "deadline", description: "National team directors must submit their preliminary 26-player roster lists." },
+  { id: "e8", date: "2026-06-05", title: "Tactical Playbook Hard Lock", type: "deadline", description: "Pre-tournament tactical configurations, team ratings, and system calibrations lock." },
+  { id: "e9", date: "2026-06-15", title: "Mid-Tournament Roster Adjustments", type: "deadline", description: "Medical emergency replacement roster window closes at midnight." },
+  { id: "e10", date: "2026-06-25", title: "Knockout Squad Registration Deadline", type: "deadline", description: "Rosters for qualified playoff teams are finalized and verified." },
+
+  // June 2026 - Present/Upcoming Day (Assume Today is 2026-06-30)
+  { id: "e11", date: "2026-06-30", title: "Knockout Bracket Live Drawing Event", type: "fixture", description: "Official live stream of playoff seeding, team placement, and analyst projections.", time: "18:00 UTC" },
+  
+  // July 2026 - Fixtures
+  { id: "e12", date: "2026-07-02", title: "Playoffs QF 1: Argentina vs Denmark", type: "fixture", description: "Live tournament play. Standard penalties apply in case of extra time draws.", time: "15:00 UTC", teamA: "Argentina", teamB: "Denmark" },
+  { id: "e13", date: "2026-07-03", title: "Playoffs QF 2: France vs Colombia", type: "fixture", description: "A high-octane encounter between French steel and Colombian flair.", time: "15:00 UTC", teamA: "France", teamB: "Colombia" },
+  { id: "e14", date: "2026-07-04", title: "Playoffs QF 3: Brazil vs Austria", type: "fixture", description: "Samba magic faces organized defensive low blocks.", time: "18:00 UTC", teamA: "Brazil", teamB: "Austria" },
+  { id: "e15", date: "2026-07-05", title: "Playoffs QF 4: England vs Canada", type: "fixture", description: "Live broadcast from Vancouver Arena under retractable lights.", time: "19:00 UTC", teamA: "England", teamB: "Canada" },
+  { id: "e16", date: "2026-07-10", title: "Semi-Final Showcase 1", type: "fixture", description: "Winner of QF1 takes on Winner of QF2 for a spot in the finals.", time: "19:00 UTC" },
+  { id: "e17", date: "2026-07-11", title: "Semi-Final Showcase 2", type: "fixture", description: "Winner of QF3 takes on Winner of QF4.", time: "19:00 UTC" },
+  { id: "e18", date: "2026-07-15", title: "Grand Championship Final", type: "fixture", description: "The pinnacle of the tournament. Championship crowning and visual closing ceremony.", time: "20:00 UTC" },
+
+  // July 2026 - Deadlines
+  { id: "e19", date: "2026-07-01", title: "Playoffs Tactical Validation", type: "deadline", description: "Validation check of all telemetry feeds, analytics logs, and bracket databases." },
+  { id: "e20", date: "2026-07-09", title: "Finals VIP Ticketing & Media Allocations", type: "deadline", description: "Final call for press box submissions and match-day broadcasting credentials." }
+];
+
 export default function TournamentCenter() {
   const { user } = useFirebase();
   const [groups, setGroups] = useState<TournamentGroup[]>(INITIAL_GROUPS);
   const [bracket, setBracket] = useState<BracketMatch[]>(INITIAL_BRACKET);
-  const [activeTab, setActiveTab] = useState<"groups" | "bracket">("groups");
+  const [activeTab, setActiveTab] = useState<"groups" | "bracket" | "calendar">("groups");
   const [groupsSimulated, setGroupsSimulated] = useState<boolean>(false);
   const [champion, setChampion] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+
+  // Calendar specific state variables
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(() => {
+    const saved = localStorage.getItem("tournament_calendar_events");
+    return saved ? JSON.parse(saved) : DEFAULT_EVENTS;
+  });
+  const [bookmarkedIds, setBookmarkedIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem("tournament_calendar_bookmarks");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [currentCalendarDate, setCurrentCalendarDate] = useState<Date>(new Date(2026, 5, 30)); // June 30, 2026 (Today)
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<Date | null>(new Date(2026, 5, 30));
+  const [calendarFilter, setCalendarFilter] = useState<"all" | "fixture" | "deadline" | "history">("all");
+
+  // Form states for adding custom event
+  const [isAddingEvent, setIsAddingEvent] = useState<boolean>(false);
+  const [newEventTitle, setNewEventTitle] = useState<string>("");
+  const [newEventDesc, setNewEventDesc] = useState<string>("");
+  const [newEventTime, setNewEventTime] = useState<string>("");
+  const [newEventType, setNewEventType] = useState<"fixture" | "deadline" | "history">("fixture");
+  const [newEventDate, setNewEventDate] = useState<string>("2026-06-30");
+
+  // Sync to local storage
+  useEffect(() => {
+    localStorage.setItem("tournament_calendar_events", JSON.stringify(calendarEvents));
+  }, [calendarEvents]);
+
+  useEffect(() => {
+    localStorage.setItem("tournament_calendar_bookmarks", JSON.stringify(bookmarkedIds));
+  }, [bookmarkedIds]);
 
   // Load state from Firebase
   useEffect(() => {
@@ -541,6 +615,17 @@ export default function TournamentCenter() {
             >
               Knockout Command
             </button>
+            <button
+              onClick={() => setActiveTab("calendar")}
+              className={`py-2.5 px-6 text-[10px] font-mono tracking-wider rounded-xl transition-all cursor-pointer font-black uppercase flex items-center gap-2 ${
+                activeTab === "calendar"
+                  ? "bg-amber-500 text-black shadow-lg shadow-amber-500/20"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              Tournament Calendar
+            </button>
           </div>
 
           <AnimatePresence mode="wait">
@@ -599,7 +684,7 @@ export default function TournamentCenter() {
                   </div>
                 ))}
               </motion.div>
-            ) : (
+            ) : activeTab === "bracket" ? (
               <motion.div
                 key="bracket"
                 initial={{ opacity: 0, y: 10 }}
@@ -671,6 +756,502 @@ export default function TournamentCenter() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="calendar"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                {/* Calendar Title Block */}
+                <div className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div className="absolute top-0 right-0 p-4 opacity-5">
+                    <Calendar className="w-24 h-24 text-white" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-mono text-amber-500 uppercase tracking-[0.2em] font-black">Tournament timeline</span>
+                    <h2 className="text-2xl font-black text-white uppercase italic tracking-tight flex items-center gap-2">
+                      <Calendar className="w-6 h-6 text-amber-500" />
+                      Visual Schedule & Fixtures
+                    </h2>
+                    <p className="text-slate-400 text-xs mt-1">Track match fixtures, registration deadlines, and historical event dates.</p>
+                  </div>
+                  
+                  {/* Sync & Today Controls */}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        const originalSync = isSyncing;
+                        setIsSyncing(true);
+                        setTimeout(() => {
+                          setIsSyncing(false);
+                        }, 800);
+                      }}
+                      className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-mono font-black uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2"
+                    >
+                      <CalendarCheck className="w-3.5 h-3.5" />
+                      Google Calendar Sync
+                    </button>
+                    <button
+                      onClick={() => {
+                        setCurrentCalendarDate(new Date(2026, 5, 30));
+                        setSelectedCalendarDate(new Date(2026, 5, 30));
+                      }}
+                      className="px-4 py-2 bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 text-[10px] font-mono font-black uppercase rounded-xl transition-all cursor-pointer"
+                    >
+                      Today
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                  {/* Calendar Widget Column */}
+                  <div className="xl:col-span-2 space-y-6">
+                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-6">
+                      
+                      {/* Month Switcher & Filters */}
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-white/5 pb-4">
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth() - 1, 1))}
+                            className="p-2 hover:bg-white/5 rounded-xl border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          <h3 className="text-lg font-black text-white uppercase italic tracking-wider min-w-[120px] text-center">
+                            {currentCalendarDate.toLocaleString("en-US", { month: "long", year: "numeric" })}
+                          </h3>
+                          <button
+                            onClick={() => setCurrentCalendarDate(new Date(currentCalendarDate.getFullYear(), currentCalendarDate.getMonth() + 1, 1))}
+                            className="p-2 hover:bg-white/5 rounded-xl border border-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Calendar Quick Filters */}
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { id: "all", label: "All Events", color: "bg-white" },
+                            { id: "fixture", label: "Fixtures", color: "bg-sky-400" },
+                            { id: "deadline", label: "Deadlines", color: "bg-rose-500" },
+                            { id: "history", label: "Historical", color: "bg-emerald-400" }
+                          ].map((filter) => (
+                            <button
+                              key={filter.id}
+                              onClick={() => setCalendarFilter(filter.id as any)}
+                              className={`py-1.5 px-3 rounded-lg text-[9px] font-mono font-black uppercase transition-all cursor-pointer flex items-center gap-1.5 border ${
+                                calendarFilter === filter.id
+                                  ? "bg-white text-black border-white"
+                                  : "bg-white/5 border-white/10 text-slate-400 hover:text-white hover:bg-white/10"
+                              }`}
+                            >
+                              {filter.id !== "all" && (
+                                <span className={`w-1.5 h-1.5 rounded-full ${filter.color}`} />
+                              )}
+                              {filter.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Calendar Day Grid */}
+                      <div className="grid grid-cols-7 gap-1 text-center">
+                        {/* Days of Week Header */}
+                        {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((dayName) => (
+                          <div key={dayName} className="text-[9px] font-mono font-black text-slate-500 tracking-wider py-2">
+                            {dayName}
+                          </div>
+                        ))}
+
+                        {/* Days Grid */}
+                        {(() => {
+                          const year = currentCalendarDate.getFullYear();
+                          const month = currentCalendarDate.getMonth();
+
+                          const firstDayOfMonth = new Date(year, month, 1);
+                          const startDayIndex = firstDayOfMonth.getDay(); // 0: Sun, 1: Mon, etc.
+                          const daysInMonth = new Date(year, month + 1, 0).getDate();
+                          const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+                          const gridCells = [];
+
+                          // Trailing days of previous month
+                          for (let i = startDayIndex - 1; i >= 0; i--) {
+                            const d = daysInPrevMonth - i;
+                            const prevDate = new Date(year, month - 1, d);
+                            gridCells.push({
+                              date: prevDate,
+                              isCurrentMonth: false,
+                              dayNumber: d
+                            });
+                          }
+
+                          // Days of current month
+                          for (let d = 1; d <= daysInMonth; d++) {
+                            const date = new Date(year, month, d);
+                            gridCells.push({
+                              date,
+                              isCurrentMonth: true,
+                              dayNumber: d
+                            });
+                          }
+
+                          // Leading days of next month to complete the grid
+                          const remainingCells = (7 - (gridCells.length % 7)) % 7;
+                          for (let d = 1; d <= remainingCells; d++) {
+                            const nextDate = new Date(year, month + 1, d);
+                            gridCells.push({
+                              date: nextDate,
+                              isCurrentMonth: false,
+                              dayNumber: d
+                            });
+                          }
+
+                          return gridCells.map((cell, idx) => {
+                            const dateStr = `${cell.date.getFullYear()}-${String(cell.date.getMonth() + 1).padStart(2, '0')}-${String(cell.date.getDate()).padStart(2, '0')}`;
+                            const isSelected = selectedCalendarDate && 
+                              selectedCalendarDate.getFullYear() === cell.date.getFullYear() &&
+                              selectedCalendarDate.getMonth() === cell.date.getMonth() &&
+                              selectedCalendarDate.getDate() === cell.date.getDate();
+                            
+                            const isToday = new Date().toDateString() === cell.date.toDateString() || 
+                              (cell.date.getFullYear() === 2026 && cell.date.getMonth() === 5 && cell.date.getDate() === 30); // Simulated today
+
+                            const dayEvents = calendarEvents.filter(e => e.date === dateStr);
+                            const filteredDayEvents = calendarFilter === "all" ? dayEvents : dayEvents.filter(e => e.type === calendarFilter);
+
+                            return (
+                              <button
+                                key={idx}
+                                onClick={() => setSelectedCalendarDate(cell.date)}
+                                className={`min-h-[76px] p-2.5 rounded-2xl flex flex-col justify-between border text-left transition-all relative ${
+                                  !cell.isCurrentMonth ? "opacity-30 hover:opacity-50" : ""
+                                } ${
+                                  isSelected 
+                                    ? "bg-amber-500/10 border-amber-500 shadow-md shadow-amber-500/5 text-white" 
+                                    : isToday 
+                                      ? "bg-white/10 border-white/20 text-white" 
+                                      : "bg-white/5 border-transparent hover:border-white/10 text-slate-300"
+                                }`}
+                              >
+                                <span className={`text-[10px] font-mono font-black ${isToday && !isSelected ? "text-amber-500" : ""}`}>
+                                  {String(cell.dayNumber).padStart(2, '0')}
+                                </span>
+
+                                {/* Dot Indicators */}
+                                {filteredDayEvents.length > 0 && (
+                                  <div className="flex gap-1 mt-1.5 flex-wrap">
+                                    {filteredDayEvents.map((evt, eIdx) => (
+                                      <span
+                                        key={eIdx}
+                                        className={`w-1.5 h-1.5 rounded-full ${
+                                          evt.type === "fixture"
+                                            ? "bg-sky-400"
+                                            : evt.type === "deadline"
+                                              ? "bg-rose-500"
+                                              : "bg-emerald-400"
+                                        }`}
+                                        title={evt.title}
+                                      />
+                                    ))}
+                                  </div>
+                                )}
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Collapsible Add Custom Event Form */}
+                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <Plus className="w-5 h-5 text-amber-500" />
+                          <h3 className="text-sm font-black text-white uppercase italic tracking-tight">Timeline Orchestrator</h3>
+                        </div>
+                        <button
+                          onClick={() => setIsAddingEvent(!isAddingEvent)}
+                          className="px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-[9px] font-mono font-black uppercase rounded-lg border border-white/10 transition-all cursor-pointer"
+                        >
+                          {isAddingEvent ? "Collapse Form" : "Add Custom Event"}
+                        </button>
+                      </div>
+
+                      <AnimatePresence>
+                        {isAddingEvent && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="overflow-hidden mt-6"
+                          >
+                            <form 
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                if (!newEventTitle.trim()) return;
+
+                                const newEvt: CalendarEvent = {
+                                  id: "custom_" + Date.now(),
+                                  title: newEventTitle,
+                                  description: newEventDesc || "Custom scheduled tournament milestone.",
+                                  date: newEventDate,
+                                  type: newEventType,
+                                  time: newEventTime || undefined
+                                };
+
+                                setCalendarEvents([...calendarEvents, newEvt]);
+                                setNewEventTitle("");
+                                setNewEventDesc("");
+                                setNewEventTime("");
+                                setIsAddingEvent(false);
+                              }}
+                              className="space-y-4 pt-4 border-t border-white/5"
+                            >
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black block">Event Title</label>
+                                  <input
+                                    type="text"
+                                    required
+                                    placeholder="e.g. Squad Training Block A"
+                                    value={newEventTitle}
+                                    onChange={(e) => setNewEventTitle(e.target.value)}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-600 font-sans"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black block">Event Date</label>
+                                  <input
+                                    type="date"
+                                    required
+                                    value={newEventDate}
+                                    onChange={(e) => setNewEventDate(e.target.value)}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500 transition-all font-mono"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                  <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black block">Event Category</label>
+                                  <select
+                                    value={newEventType}
+                                    onChange={(e: any) => setNewEventType(e.target.value)}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-slate-300 focus:outline-none focus:border-amber-500 transition-all font-mono"
+                                  >
+                                    <option value="fixture">Upcoming Fixture (Sky)</option>
+                                    <option value="deadline">Registration Deadline (Rose)</option>
+                                    <option value="history">Historical Event (Emerald)</option>
+                                  </select>
+                                </div>
+                                <div className="space-y-2">
+                                  <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black block">Time (Optional)</label>
+                                  <input
+                                    type="text"
+                                    placeholder="e.g. 14:00 UTC"
+                                    value={newEventTime}
+                                    onChange={(e) => setNewEventTime(e.target.value)}
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-600 font-sans"
+                                  />
+                                </div>
+                                <div className="space-y-2 md:col-span-1 flex items-end">
+                                  <button
+                                    type="submit"
+                                    className="w-full bg-white hover:bg-amber-400 text-black font-black text-[10px] font-mono uppercase py-3.5 px-4 rounded-xl tracking-wider transition-all cursor-pointer"
+                                  >
+                                    Deploy to Timeline
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black block">Detailed Description</label>
+                                <textarea
+                                  placeholder="Provide deep tactical details or event guidelines..."
+                                  value={newEventDesc}
+                                  onChange={(e) => setNewEventDesc(e.target.value)}
+                                  rows={2}
+                                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-amber-500 transition-all placeholder:text-slate-600 font-sans resize-none"
+                                />
+                              </div>
+                            </form>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+
+                  {/* Sidebar Detail Column */}
+                  <div className="space-y-6">
+                    {/* Active Date Panel */}
+                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-6">
+                      <div className="flex justify-between items-center border-b border-white/5 pb-4">
+                        <div>
+                          <p className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-black">Selected Date</p>
+                          <h3 className="text-sm font-black text-white uppercase italic tracking-tight mt-0.5">
+                            {selectedCalendarDate 
+                              ? selectedCalendarDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })
+                              : "No date selected"}
+                          </h3>
+                        </div>
+                        <div className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                          <Info className="w-4 h-4 text-slate-400" />
+                        </div>
+                      </div>
+
+                      {/* Day Event List */}
+                      <div className="space-y-4">
+                        {(() => {
+                          if (!selectedCalendarDate) return null;
+                          const selStr = `${selectedCalendarDate.getFullYear()}-${String(selectedCalendarDate.getMonth() + 1).padStart(2, '0')}-${String(selectedCalendarDate.getDate()).padStart(2, '0')}`;
+                          const dayEvents = calendarEvents.filter(e => e.date === selStr);
+
+                          if (dayEvents.length === 0) {
+                            return (
+                              <div className="text-center py-10 space-y-3">
+                                <AlertCircle className="w-8 h-8 text-slate-600 mx-auto" />
+                                <p className="text-xs text-slate-500 font-mono font-medium">No events scheduled for this date.</p>
+                                <button
+                                  onClick={() => {
+                                    setNewEventDate(selStr);
+                                    setIsAddingEvent(true);
+                                  }}
+                                  className="text-[10px] font-mono text-amber-500 hover:text-white uppercase font-black tracking-wider underline cursor-pointer"
+                                >
+                                  Orchestrate Event
+                                </button>
+                              </div>
+                            );
+                          }
+
+                          return dayEvents.map((evt) => {
+                            const isBookmarked = bookmarkedIds.includes(evt.id);
+                            return (
+                              <div
+                                key={evt.id}
+                                className={`border rounded-2xl p-4.5 space-y-3 transition-all relative overflow-hidden bg-white/5 ${
+                                  evt.type === "fixture"
+                                    ? "border-sky-500/20"
+                                    : evt.type === "deadline"
+                                      ? "border-rose-500/20"
+                                      : "border-emerald-500/20"
+                                }`}
+                              >
+                                {/* Header / Category */}
+                                <div className="flex justify-between items-start gap-4">
+                                  <div className="space-y-1">
+                                    <span className={`text-[8px] font-mono font-black uppercase tracking-widest px-2 py-0.5 rounded ${
+                                      evt.type === "fixture"
+                                        ? "bg-sky-500/10 text-sky-400"
+                                        : evt.type === "deadline"
+                                          ? "bg-rose-500/10 text-rose-400"
+                                          : "bg-emerald-500/10 text-emerald-400"
+                                    }`}>
+                                      {evt.type}
+                                    </span>
+                                    <h4 className="text-xs font-black text-white uppercase italic tracking-tight mt-1">{evt.title}</h4>
+                                  </div>
+
+                                  <div className="flex gap-1">
+                                    <button
+                                      onClick={() => {
+                                        if (isBookmarked) {
+                                          setBookmarkedIds(bookmarkedIds.filter(id => id !== evt.id));
+                                        } else {
+                                          setBookmarkedIds([...bookmarkedIds, evt.id]);
+                                        }
+                                      }}
+                                      className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                        isBookmarked
+                                          ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                                          : "bg-white/5 border-white/10 text-slate-500 hover:text-white hover:bg-white/10"
+                                      }`}
+                                      title={isBookmarked ? "Remove Bookmark" : "Set Reminder Bookmark"}
+                                    >
+                                      {isBookmarked ? (
+                                        <BookmarkCheck className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <Bookmark className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+                                    
+                                    {evt.id.startsWith("custom_") && (
+                                      <button
+                                        onClick={() => {
+                                          setCalendarEvents(calendarEvents.filter(e => e.id !== evt.id));
+                                          setBookmarkedIds(bookmarkedIds.filter(id => id !== evt.id));
+                                        }}
+                                        className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-slate-500 hover:text-rose-500 hover:bg-rose-500/10 transition-all cursor-pointer"
+                                        title="Delete custom event"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Body Description */}
+                                <p className="text-slate-400 text-[11px] leading-relaxed font-sans">{evt.description}</p>
+
+                                {/* Dynamic Details if match or timing */}
+                                {(evt.time || evt.score || (evt.teamA && evt.teamB)) && (
+                                  <div className="flex items-center justify-between border-t border-white/5 pt-3 mt-1.5 text-[10px] font-mono">
+                                    {evt.teamA && evt.teamB ? (
+                                      <div className="text-slate-300 font-bold uppercase italic tracking-tight">
+                                        {evt.teamA} <span className="text-amber-500 font-black px-1">{evt.score || "VS"}</span> {evt.teamB}
+                                      </div>
+                                    ) : (
+                                      <div className="text-slate-500 font-bold">EVENT TIMING</div>
+                                    )}
+                                    {evt.time && (
+                                      <span className="text-amber-500 font-black tracking-wider uppercase bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">{evt.time}</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Bookmarked / Active Reminders Panel */}
+                    <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-4">
+                      <div className="flex items-center gap-2.5">
+                        <Bookmark className="w-4 h-4 text-amber-500" />
+                        <h3 className="text-xs font-black text-white uppercase italic tracking-tight">Active Bookmarks ({bookmarkedIds.length})</h3>
+                      </div>
+
+                      {bookmarkedIds.length === 0 ? (
+                        <p className="text-[10px] font-mono text-slate-500 tracking-wider">No bookmarked reminders. Click the bookmark icon on any event to trigger an alert.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {calendarEvents.filter(e => bookmarkedIds.includes(e.id)).map((evt) => (
+                            <div
+                              key={evt.id}
+                              onClick={() => {
+                                const [y, m, d] = evt.date.split("-").map(Number);
+                                setSelectedCalendarDate(new Date(y, m - 1, d));
+                                setCurrentCalendarDate(new Date(y, m - 1, 1));
+                              }}
+                              className="p-3 bg-white/5 hover:bg-white/10 rounded-xl border border-white/5 cursor-pointer flex justify-between items-center transition-all group"
+                            >
+                              <div className="truncate pr-4">
+                                <h4 className="text-[11px] font-black text-slate-200 uppercase italic tracking-tight group-hover:text-amber-500 transition-colors">{evt.title}</h4>
+                                <span className="text-[8px] font-mono text-slate-500 font-bold uppercase tracking-wider">{evt.date}</span>
+                              </div>
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-amber-500 group-hover:translate-x-0.5 transition-all flex-shrink-0" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}

@@ -23,12 +23,14 @@ export default function TriviaQuiz() {
   useEffect(() => {
     const q = query(
       collection(db, "high_scores"),
-      orderBy("score", "desc"),
-      limit(5)
+      limit(10)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const docs = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 5);
       setLeaderboard(docs);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, "high_scores");

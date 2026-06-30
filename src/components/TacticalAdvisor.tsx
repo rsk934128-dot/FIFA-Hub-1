@@ -36,7 +36,6 @@ export default function TacticalAdvisor() {
     const q = query(
       collection(db, "chats"),
       where("userId", "==", user.uid),
-      orderBy("timestamp", "asc"),
       limit(50)
     );
 
@@ -48,11 +47,15 @@ export default function TacticalAdvisor() {
           timestamp: new Date().toLocaleTimeString(),
         }]);
       } else {
-        const loadedMessages = snapshot.docs.map(doc => ({
-          role: doc.data().role,
-          content: doc.data().content,
-          timestamp: doc.data().timestamp?.toDate().toLocaleTimeString() || new Date().toLocaleTimeString()
-        } as ChatMessage));
+        const loadedMessages = snapshot.docs
+          .map(doc => ({
+            role: doc.data().role,
+            content: doc.data().content,
+            timestamp: doc.data().timestamp?.toDate().toLocaleTimeString() || new Date().toLocaleTimeString(),
+            rawTimestamp: doc.data().timestamp?.toDate().getTime() || 0
+          }))
+          .sort((a, b) => a.rawTimestamp - b.rawTimestamp)
+          .map(({ role, content, timestamp }) => ({ role, content, timestamp } as ChatMessage));
         setMessages(loadedMessages);
       }
     }, (err) => {

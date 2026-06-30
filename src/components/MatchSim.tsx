@@ -4,6 +4,7 @@ import { Play, RotateCcw, Award, Clock, Activity, Sliders, AlertCircle, Sparkles
 import { audioManager } from "../lib/audio";
 import { motion, AnimatePresence } from "motion/react";
 import MVPPredictor from "./MVPPredictor";
+import ManOfTheMatchCard from "./ManOfTheMatchCard";
 import { GmailShare } from "./GmailShare";
 import { DriveShare } from "./DriveShare";
 import { Toaster, toast } from 'sonner';
@@ -46,6 +47,96 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
   const [crowdIntensity, setCrowdIntensity] = useState<number>(30); // 0-100
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Browser Notification State
+  const [notificationPermission, setNotificationPermission] = useState<string>("default");
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      setNotificationPermission(Notification.permission);
+    } else {
+      setNotificationPermission("unsupported");
+    }
+  }, []);
+
+  const requestNotificationPermission = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      toast.error("Browser Notifications are not supported on this device/browser.");
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      if (permission === "granted") {
+        toast.success("Notifications Enabled!", {
+          description: "You will now receive desktop alerts for goals and full-time updates."
+        });
+        new Notification("FIFA Hub Live Alerts", {
+          body: "Live match push alerts have been successfully activated!",
+          icon: "/logo.jpg"
+        });
+      } else if (permission === "denied") {
+        toast.error("Notification Permission Denied", {
+          description: "Please unblock notification permission in your browser settings to receive alerts."
+        });
+      }
+    } catch (err) {
+      console.error("Error requesting notification permission:", err);
+    }
+  };
+
+  const renderNotificationToggle = () => {
+    if (notificationPermission === "unsupported") {
+      return (
+        <div className="text-[10px] font-mono text-slate-500 bg-white/5 border border-white/5 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+          <BellRing className="w-3.5 h-3.5 text-slate-500" />
+          <span>Alerts Unsupported</span>
+        </div>
+      );
+    }
+
+    if (notificationPermission === "granted") {
+      return (
+        <button
+          onClick={() => {
+            toast.info("Browser Notifications Active", {
+              description: "You'll receive live alerts on your device for goals and full-time updates!"
+            });
+          }}
+          className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5 cursor-pointer hover:bg-emerald-500/20 transition-all font-black uppercase tracking-tight"
+        >
+          <BellRing className="w-3.5 h-3.5 text-emerald-500 animate-pulse" />
+          <span>Alerts Enabled</span>
+        </button>
+      );
+    }
+
+    if (notificationPermission === "denied") {
+      return (
+        <button
+          onClick={() => {
+            toast.error("Notifications Blocked", {
+              description: "Please update your browser settings to allow site notifications for full real-time alerts."
+            });
+          }}
+          className="text-[10px] font-mono text-rose-400 bg-rose-500/10 border border-rose-500/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5 cursor-pointer hover:bg-rose-500/20 transition-all font-black uppercase tracking-tight"
+        >
+          <BellRing className="w-3.5 h-3.5 text-rose-500" />
+          <span>Alerts Blocked</span>
+        </button>
+      );
+    }
+
+    return (
+      <button
+        onClick={requestNotificationPermission}
+        className="text-[10px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5 cursor-pointer hover:bg-amber-400 hover:text-black transition-all font-black uppercase tracking-tight"
+      >
+        <BellRing className="w-3.5 h-3.5 text-amber-500" />
+        <span>Enable Live Device Alerts</span>
+      </button>
+    );
+  };
 
   // Sync audio manager state
   useEffect(() => {
@@ -102,6 +193,19 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
                 audioManager.playGoalRoar();
                 setCrowdIntensity(100);
                 setTimeout(() => setCrowdIntensity(60), 4000);
+
+                // Live browser notification for Goal
+                if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+                  try {
+                    const scoringTeam = ev.team === 'A' ? teamA : teamB;
+                    new Notification(`⚽ GOAL! ${scoringTeam} Scores!`, {
+                      body: `${ev.minute}': ${ev.description}`,
+                      icon: "/logo.jpg"
+                    });
+                  } catch (err) {
+                    console.error("Browser notification failed:", err);
+                  }
+                }
               } else if (ev.type === 'chance') {
                 setCrowdIntensity(85);
                 setTimeout(() => setCrowdIntensity(50), 2000);
@@ -125,6 +229,26 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
             setIsFinished(true);
             setCrowdIntensity(15);
             if (timerRef.current) clearInterval(timerRef.current);
+
+            // Live browser notification for Match Finished
+            if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+              try {
+                const finalScoreA = simResult.scoreA;
+                const finalScoreB = simResult.scoreB;
+                const winnerText = finalScoreA > finalScoreB 
+                  ? `${teamA} wins!` 
+                  : finalScoreB > finalScoreA 
+                    ? `${teamB} wins!` 
+                    : "The match ended in a draw!";
+
+                new Notification(`🏁 MATCH FINISHED: ${teamA} vs ${teamB}`, {
+                  body: `Final Score: ${teamA} ${finalScoreA} - ${finalScoreB} ${teamB}. ${winnerText}`,
+                  icon: "/logo.jpg"
+                });
+              } catch (err) {
+                console.error("Browser notification failed:", err);
+              }
+            }
             
             // Save to history if user is logged in
             if (user && simResult) {
@@ -152,7 +276,7 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isPlaying, simResult, user]);
+  }, [isPlaying, simResult, user, teamA, teamB, isFinished]);
 
   // Fetch History
   useEffect(() => {
@@ -163,12 +287,18 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
 
     const q = query(
       collection(db, "matches"),
-      orderBy("simulatedAt", "desc"),
-      limit(5)
+      limit(10)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const docs = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .sort((a, b) => {
+          const aTime = a.simulatedAt?.seconds || 0;
+          const bTime = b.simulatedAt?.seconds || 0;
+          return bTime - aTime;
+        })
+        .slice(0, 5);
       setHistory(docs);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, "matches");
@@ -213,31 +343,17 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
     const significantTypes = ['goal', 'card_red', 'card_yellow', 'substitution'];
     
     if (significantTypes.includes(latestEvent.type)) {
-      const triggerNotification = async () => {
-        try {
-          const response = await fetch("/api/event-commentary", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ event: latestEvent, teamA, teamB }),
-          });
-          
-          if (!response.ok) throw new Error("Commentary failed");
-          const data = await response.json();
-          
-          toast(data.headline, {
-            description: data.commentary,
-            duration: 5000,
-            icon: <BellRing className="w-4 h-4 text-amber-500" />,
-            className: "bg-zinc-900 border border-white/10 text-white rounded-2xl p-4 shadow-2xl",
-          });
-        } catch (err) {
-          // Fallback if AI fails
-          toast(latestEvent.type.toUpperCase().replace('_', ' '), {
-            description: latestEvent.description,
-            duration: 4000,
-            className: "bg-zinc-900 border border-white/10 text-white rounded-2xl p-4 shadow-2xl",
-          });
-        }
+      const triggerNotification = () => {
+        // Use AI-generated commentary if available, else fallback to standard description
+        const headline = latestEvent.headline || latestEvent.type.toUpperCase().replace('_', ' ');
+        const commentary = latestEvent.aiCommentary || latestEvent.description;
+        
+        toast(headline, {
+          description: commentary,
+          duration: 5000,
+          icon: <BellRing className="w-4 h-4 text-amber-500" />,
+          className: "bg-zinc-900 border border-white/10 text-white rounded-2xl p-4 shadow-2xl",
+        });
       };
       
       triggerNotification();
@@ -273,6 +389,9 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
             <p className="text-xs text-slate-400 max-w-md mx-auto font-mono uppercase tracking-widest font-bold">
               Autonomous Match Simulation Node
             </p>
+            <div className="flex justify-center pt-2">
+              {renderNotificationToggle()}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-11 items-center gap-6 relative">
@@ -397,6 +516,7 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
               </div>
             </div>
             <div className="flex items-center gap-4">
+              {renderNotificationToggle()}
               <div className="flex flex-col items-end">
                 <span className="text-[8px] font-mono text-slate-500 uppercase font-black">Crowd Intensity</span>
                 <div className="w-24 h-1.5 bg-white/5 rounded-full overflow-hidden mt-1">
@@ -544,6 +664,13 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
                   </button>
                 </div>
               </div>
+
+              {/* Official Man of the Match Card */}
+              <ManOfTheMatchCard 
+                simResult={simResult}
+                events={visibleEvents}
+                isFinished={isFinished}
+              />
 
               {/* AI-Powered MVP Prediction */}
               <MVPPredictor 

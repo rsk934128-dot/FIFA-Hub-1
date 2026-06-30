@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { ScoutingReport, PlayerComparison } from "../types";
-import { Shield, Sparkles, RefreshCw, AlertCircle, Search, Star, Layers, Activity, Users, ArrowLeftRight, Flame, Share2, History } from "lucide-react";
+import { Shield, Sparkles, RefreshCw, AlertCircle, Search, Star, Layers, Activity, Users, ArrowLeftRight, Flame, Share2, History, Plus, HardDrive, FileText, Loader2, ExternalLink } from "lucide-react";
 import NetworkFlow from "./NetworkFlow";
 import { GmailShare } from "./GmailShare";
 import { DriveShare } from "./DriveShare";
+import { PlayerRadarChart } from "./PlayerRadarChart";
+import { Toaster, toast } from 'sonner';
 import { collection, addDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useFirebase } from "./FirebaseProvider";
 import { handleFirestoreError, OperationType } from "../lib/firebaseUtils";
+import { useWorkspace } from "./WorkspaceProvider";
+import { googleSignIn } from "../lib/workspace";
+import { jsPDF } from "jspdf";
 
 const SUGGESTED_COUNTRIES = [
   "Argentina", "Brazil", "France", "England", "Spain", "Germany", "Japan", "Bangladesh", "Morocco"
@@ -16,6 +21,11 @@ const SUGGESTED_COUNTRIES = [
 export default function ScoutingTerminal() {
   const { user } = useFirebase();
   const [view, setView] = useState<"scout" | "compare">("scout");
+
+  // Save Player Report to Drive State
+  const [isSavingPlayer, setIsSavingPlayer] = useState<"txt" | "pdf" | null>(null);
+  const [playerFileLinks, setPlayerFileLinks] = useState<{ txt?: string; pdf?: string }>({});
+  const { hasGmailAccess, accessToken, setGmailAccess } = useWorkspace();
   
   // Scouting State
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -25,6 +35,11 @@ export default function ScoutingTerminal() {
   const [error, setError] = useState<string | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<any>(null);
   const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
+
+  // Clear dynamic file links when player selection changes
+  useEffect(() => {
+    setPlayerFileLinks({});
+  }, [selectedPlayer]);
 
   // Comparison State
   const [player1, setPlayer1] = useState<string>("");
@@ -103,12 +118,17 @@ export default function ScoutingTerminal() {
     const q = query(
       collection(db, "comparisons"),
       where("userId", "==", user.uid),
-      orderBy("createdAt", "desc"),
       limit(10)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const docs = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .sort((a, b) => {
+          const aTime = a.createdAt?.seconds || 0;
+          const bTime = b.createdAt?.seconds || 0;
+          return bTime - aTime;
+        });
       setComparisonHistory(docs);
     }, (err) => {
       handleFirestoreError(err, OperationType.LIST, "comparisons");
@@ -116,6 +136,194 @@ export default function ScoutingTerminal() {
 
     return () => unsubscribe();
   }, [user]);
+
+  const handleConnectWorkspace = async () => {
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        setGmailAccess(result.accessToken);
+        toast.success("Drive Connected!");
+      }
+    } catch (err) {
+      toast.error("Failed to connect Workspace");
+    }
+  };
+
+  const handleSavePlayerToDrive = async (format: "txt" | "pdf") => {
+    if (!selectedPlayer || !report) return;
+    setIsSavingPlayer(format);
+    
+    try {
+      let fileName = "";
+      let content = "";
+      let mimeType = "";
+
+      const pName = selectedPlayer.name.replace(/\s+/g, "_");
+      if (format === "txt") {
+        fileName = `Scouting_Report_${pName}.txt`;
+        mimeType = "text/plain";
+        content = `==================================================
+FIFA HUB AI SCOUTING REPORT: ${selectedPlayer.name.toUpperCase()}
+==================================================
+Player Name:    ${selectedPlayer.name}
+Country/Team:   ${report.country}
+Position:       ${selectedPlayer.position}
+Squad Number:   N°${selectedPlayer.number || '—'}
+Tactical Role:  ${selectedPlayer.role}
+
+--------------------------------------------------
+TACTICAL INTELLIGENCE BREAKDOWN
+--------------------------------------------------
+Role Description:
+${selectedPlayer.role}
+
+--------------------------------------------------
+TEAM SCOUTING CONTEXT: ${report.country.toUpperCase()}
+--------------------------------------------------
+Formation:      ${report.formation}
+Style of Play:  ${report.styleOfPlay}
+
+Key Team Strengths:
+${report.strengths.map(s => ` - ${s}`).join('\n')}
+
+Tactical Gaps / Weaknesses:
+${report.weaknesses.map(w => ` - ${w}`).join('\n')}
+
+Generated on: ${new Date().toLocaleDateString()}
+Powered by Gemini AI Scouting Intelligence
+==================================================`;
+      } else {
+        fileName = `Scouting_Report_${pName}.pdf`;
+        mimeType = "application/pdf";
+
+        const doc = new jsPDF();
+        
+        doc.setFillColor(5, 8, 17);
+        doc.rect(0, 0, 210, 297, "F");
+
+        doc.setDrawColor(245, 158, 11);
+        doc.setLineWidth(1);
+        doc.line(15, 15, 195, 15);
+        doc.line(15, 45, 195, 45);
+
+        doc.setTextColor(245, 158, 11);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.text('FIFA HUB • AI SCOUTING REPORT', 20, 30);
+        
+        doc.setTextColor(148, 163, 184);
+        doc.setFontSize(10);
+        doc.text(`GENERATED ON: ${new Date().toLocaleDateString()}`, 20, 39);
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('I. PLAYER SPECIFICATIONS', 20, 60);
+
+        doc.setDrawColor(255, 255, 255);
+        doc.setLineWidth(0.2);
+        doc.line(20, 63, 190, 63);
+
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(226, 232, 240);
+        
+        doc.text(`Player Name:   ${selectedPlayer.name}`, 20, 72);
+        doc.text(`Country/Team:  ${report.country}`, 20, 79);
+        doc.text(`Position:      ${selectedPlayer.position}`, 20, 86);
+        doc.text(`Squad Number:  N°${selectedPlayer.number || '—'}`, 20, 93);
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('II. TACTICAL ROLE & PROFILE', 20, 110);
+
+        doc.line(20, 113, 190, 113);
+
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(226, 232, 240);
+
+        const roleLines = doc.splitTextToSize(selectedPlayer.role || 'Core squad player with default positional requirements.', 170);
+        doc.text(roleLines, 20, 122);
+
+        const currentY = 122 + (roleLines.length * 6);
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('III. NATIONAL TEAM CONTEXT', 20, currentY + 15);
+
+        doc.line(20, currentY + 18, 190, currentY + 18);
+
+        doc.setFontSize(11);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(226, 232, 240);
+
+        doc.text(`Formation:     ${report.formation}`, 20, currentY + 27);
+        doc.text(`Play Style:    ${report.styleOfPlay}`, 20, currentY + 34);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('Key Team Strengths:', 20, currentY + 45);
+        doc.setFont('helvetica', 'normal');
+        
+        let strengthY = currentY + 52;
+        report.strengths.forEach((st) => {
+          doc.text(`• ${st}`, 25, strengthY);
+          strengthY += 6;
+        });
+
+        doc.setFont('helvetica', 'bold');
+        doc.text('Tactical Gaps / Weaknesses:', 20, strengthY + 5);
+        doc.setFont('helvetica', 'normal');
+        
+        let weaknessY = strengthY + 12;
+        report.weaknesses.forEach((wk) => {
+          doc.text(`• ${wk}`, 25, weaknessY);
+          weaknessY += 6;
+        });
+
+        doc.setDrawColor(245, 158, 11);
+        doc.setLineWidth(0.5);
+        doc.line(15, 275, 195, 275);
+
+        doc.setTextColor(148, 163, 184);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'italic');
+        doc.text('Confidential • Prepared for scouting staff only • Powered by Gemini AI', 20, 282);
+
+        content = doc.output("datauristring");
+      }
+
+      const response = await fetch('/api/drive/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: fileName,
+          content,
+          mimeType,
+          accessToken
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to save file to Drive");
+      }
+
+      const data = await response.json();
+      setPlayerFileLinks(prev => ({ ...prev, [format]: data.link }));
+      toast.success(`Saved player report as ${format.toUpperCase()} to Google Drive!`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || `Failed to save ${format.toUpperCase()} to Drive`);
+      if (err.message?.includes('auth') || err.message?.includes('token')) {
+        setGmailAccess(null);
+      }
+    } finally {
+      setIsSavingPlayer(null);
+    }
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -463,6 +671,21 @@ export default function ScoutingTerminal() {
                               {selectedPlayer.name}
                             </h4>
                             <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  if (!player1) setPlayer1(selectedPlayer.name);
+                                  else if (!player2) setPlayer2(selectedPlayer.name);
+                                  else {
+                                    setPlayer1(player2);
+                                    setPlayer2(selectedPlayer.name);
+                                  }
+                                  toast.success(`Added ${selectedPlayer.name} to comparison`);
+                                }}
+                                className="flex items-center gap-1 text-[9px] font-mono font-bold px-2 py-0.5 rounded border border-blue-500/30 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-all cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                ADD TO COMPARE
+                              </button>
                               {selectedPlayer.heatmap && (
                                 <button
                                   onClick={() => setShowHeatmap(!showHeatmap)}
@@ -484,6 +707,78 @@ export default function ScoutingTerminal() {
                           <p className="text-[11px] text-slate-400 leading-normal font-sans">
                             Tactical Role: <strong className="text-slate-200">{selectedPlayer.role}</strong>
                           </p>
+
+                          {/* Save Report to Drive Section */}
+                          <div className="mt-4 pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-black flex items-center gap-1.5">
+                              <HardDrive className="w-3.5 h-3.5 text-blue-500 animate-pulse" />
+                              Save Report to Drive
+                            </span>
+                            
+                            {!hasGmailAccess ? (
+                              <button
+                                onClick={handleConnectWorkspace}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 border border-blue-500/25 rounded-xl font-mono text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                              >
+                                <HardDrive className="w-3.5 h-3.5" />
+                                Connect Drive
+                              </button>
+                            ) : (
+                              <div className="flex flex-wrap gap-2">
+                                {/* TXT Format */}
+                                {playerFileLinks.txt ? (
+                                  <a
+                                    href={playerFileLinks.txt}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/25 rounded-xl font-mono text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                    View TXT
+                                  </a>
+                                ) : (
+                                  <button
+                                    onClick={() => handleSavePlayerToDrive("txt")}
+                                    disabled={isSavingPlayer !== null}
+                                    className="flex items-center gap-1 px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 rounded-xl font-mono text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
+                                  >
+                                    {isSavingPlayer === "txt" ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <FileText className="w-3 h-3" />
+                                    )}
+                                    Save as TXT
+                                  </button>
+                                )}
+
+                                {/* PDF Format */}
+                                {playerFileLinks.pdf ? (
+                                  <a
+                                    href={playerFileLinks.pdf}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/25 rounded-xl font-mono text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                    View PDF
+                                  </a>
+                                ) : (
+                                  <button
+                                    onClick={() => handleSavePlayerToDrive("pdf")}
+                                    disabled={isSavingPlayer !== null}
+                                    className="flex items-center gap-1 px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black rounded-xl font-mono text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50 font-bold"
+                                  >
+                                    {isSavingPlayer === "pdf" ? (
+                                      <Loader2 className="w-3 h-3 animate-spin text-black" />
+                                    ) : (
+                                      <HardDrive className="w-3 h-3 text-black" />
+                                    )}
+                                    Save as PDF
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <div className="text-center text-[10px] font-mono text-slate-500 py-2 uppercase font-bold tracking-wider">
@@ -553,9 +848,27 @@ export default function ScoutingTerminal() {
                                 {player.role}
                               </span>
                             </div>
-                            <span className="text-[10px] font-mono bg-white/5 text-amber-400 font-bold py-1 px-2.5 rounded-lg border border-white/5">
-                              {player.position}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!player1) setPlayer1(player.name);
+                                  else if (!player2) setPlayer2(player.name);
+                                  else {
+                                    setPlayer1(player2);
+                                    setPlayer2(player.name);
+                                  }
+                                  toast.success(`Added ${player.name} to comparison`);
+                                }}
+                                className="p-1.5 rounded-lg bg-white/5 border border-white/5 text-slate-500 hover:text-blue-400 hover:bg-blue-400/10 transition-all"
+                                title="Add to comparison"
+                              >
+                                <Plus className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="text-[10px] font-mono bg-white/5 text-amber-400 font-bold py-1 px-2.5 rounded-lg border border-white/5">
+                                {player.position}
+                              </span>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -675,6 +988,11 @@ export default function ScoutingTerminal() {
             </div>
           ) : comparison ? (
             <div className="space-y-6">
+              {/* Radar Chart Visualization */}
+              <div className="max-w-4xl mx-auto">
+                <PlayerRadarChart playerA={comparison.playerA} playerB={comparison.playerB} />
+              </div>
+
               {/* Split Screen Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 relative">
                 {/* VS Overlay for Desktop */}

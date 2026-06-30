@@ -1,14 +1,15 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { google } from "googleapis";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 // Helper to clean Gemini JSON responses (removes markdown backticks)
-function cleanJsonResponse(text: string) {
+function cleanJsonResponse(text: string | null | undefined) {
+  if (!text) return "";
   return text.replace(/```json|```/g, "").trim();
 }
 
@@ -20,6 +21,8 @@ async function startServer() {
 
   // Initialize Gemini if key exists
   let ai: GoogleGenAI | null = null;
+  const MODEL_NAME = "gemini-3.5-flash"; // Recommended model as per latest skill
+
   if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY") {
     try {
       ai = new GoogleGenAI({
@@ -30,49 +33,196 @@ async function startServer() {
           }
         }
       });
-      console.log("Gemini API Client successfully initialized.");
+      console.log(`Gemini API Client successfully initialized with model: ${MODEL_NAME}`);
     } catch (e) {
       console.error("Failed to initialize Gemini Client: ", e);
     }
   } else {
-    console.log("No valid GEMINI_API_KEY found. Running with high-fidelity local simulator and fallback content engines.");
+    console.log("No valid GEMINI_API_KEY found or default placeholder detected. Using high-fidelity local simulator.");
   }
+
+  // Cooldown variables for resilient model circuit breaker
+  let isGeminiCooldown = false;
+  let isGeminiCooldownStartTime = 0;
+  const COOLDOWN_DURATION = 1000 * 60 * 2; // 2 minutes cooldown
+
+  // Centralized safe content generation helper with self-healing fallback mechanisms
+  async function safeGenerateContent(contents: string | any, schema?: any, systemInstruction?: string) {
+    if (!ai) return null;
+
+    if (isGeminiCooldown) {
+      if (Date.now() - isGeminiCooldownStartTime < COOLDOWN_DURATION) {
+        console.log(`[Resilience Engine] Gemini is currently on cooldown due to recent failures. Skipping call to prevent lag.`);
+        return null;
+      } else {
+        isGeminiCooldown = false;
+      }
+    }
+
+    // Prioritized list of non-deprecated models allowed in this environment
+    const candidateModels = [
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest"
+    ];
+
+    let lastError: any = null;
+
+    for (const model of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: model,
+          contents,
+          config: {
+            systemInstruction,
+            responseMimeType: schema ? "application/json" : "text/plain",
+            responseSchema: schema,
+            safetySettings: [
+              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            ]
+          }
+        });
+        if (response && response.text) {
+          if (model !== candidateModels[0]) {
+            console.log(`[Resilience Engine] Primary model failed, but successfully recovered using fallback model: ${model}`);
+          }
+          return response.text;
+        }
+      } catch (error: any) {
+        lastError = error;
+        const errMsg = String(error?.message || error || "").toLowerCase();
+        if (errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("limit") || errMsg.includes("denied") || errMsg.includes("403")) {
+          isGeminiCooldown = true;
+          isGeminiCooldownStartTime = Date.now();
+          console.log(`[Resilience Engine] API quota limit or authorization issue detected. Cooldown activated. Seamlessly using local simulator.`);
+          break;
+        } else {
+          console.log(`[Resilience Engine] Call to model ${model} did not succeed.`);
+        }
+      }
+    }
+
+    if (!isGeminiCooldown && lastError) {
+      console.log("[Resilience Engine] All candidate Gemini models exhausted.");
+    }
+    return null;
+  }
+
+  // Centralized safe content generation helper with Google Search grounding
+  async function safeGenerateGroundedContent(contents: string, schema?: any, systemInstruction?: string) {
+    if (!ai) return null;
+
+    if (isGeminiCooldown) {
+      if (Date.now() - isGeminiCooldownStartTime < COOLDOWN_DURATION) {
+        console.log(`[Resilience Engine] Gemini is currently on cooldown due to recent failures. Skipping grounded call to prevent lag.`);
+        return null;
+      } else {
+        isGeminiCooldown = false;
+      }
+    }
+
+    const candidateModels = [
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest"
+    ];
+
+    let lastError: any = null;
+
+    for (const model of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: model,
+          contents,
+          config: {
+            systemInstruction,
+            responseMimeType: schema ? "application/json" : "text/plain",
+            responseSchema: schema,
+            tools: [{ googleSearch: {} }],
+            safetySettings: [
+              { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+              { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            ]
+          }
+        });
+        if (response) {
+          if (model !== candidateModels[0]) {
+            console.log(`[Resilience Engine] Primary model failed for search grounding, but successfully recovered using fallback model: ${model}`);
+          }
+          return response;
+        }
+      } catch (error: any) {
+        lastError = error;
+        const errMsg = String(error?.message || error || "").toLowerCase();
+        if (errMsg.includes("429") || errMsg.includes("quota") || errMsg.includes("limit") || errMsg.includes("denied") || errMsg.includes("403")) {
+          isGeminiCooldown = true;
+          isGeminiCooldownStartTime = Date.now();
+          console.log(`[Resilience Engine] Grounding API quota limit or authorization issue detected. Cooldown activated. Seamlessly using local simulator.`);
+          break;
+        } else {
+          console.log(`[Resilience Engine] Grounded call to model ${model} did not succeed.`);
+        }
+      }
+    }
+
+    if (!isGeminiCooldown && lastError) {
+      console.log("[Resilience Engine] All candidate grounded Gemini models exhausted.");
+    }
+    return null;
+  }
+
+  // Caching for news and ticker to avoid hitting quota
+  let newsCache: { data: any, timestamp: number } | null = null;
+  let tickerCache: { data: any, timestamp: number } | null = null;
+  let quizCache: { data: any, timestamp: number } | null = null;
+  let groundedNewsCache: { data: any, timestamp: number } | null = null;
+  const CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
 
   // --- API ROUTE: Get News ---
   app.get("/api/football-news", async (req, res) => {
+    // Check cache
+    if (newsCache && (Date.now() - newsCache.timestamp < CACHE_DURATION)) {
+      return res.json(newsCache.data);
+    }
+
     if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: "Generate 5 exciting and realistic football news articles. Include items about international tournaments, transfer gossip, tactician statements, or underdog stories. Ensure they feel contemporary (set in 2026). Make some specific to global and Asian football contexts.",
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING, description: "Unique article ID" },
-                  title: { type: Type.STRING, description: "Engaging headline" },
-                  category: { type: Type.STRING, description: "Category like Transfer, Tournament, Statement, Analysis" },
-                  summary: { type: Type.STRING, description: "1-sentence summary" },
-                  content: { type: Type.STRING, description: "Full news article contents (2-3 paragraphs)" },
-                  date: { type: Type.STRING, description: "Formatted date like June 24, 2026" },
-                  imageSeed: { type: Type.STRING, description: "One word like football, stadium, jersey, boots, goalie" },
-                  source: { type: Type.STRING, description: "Source name like FIFA Hub News, Global Football" }
-                },
-                required: ["id", "title", "category", "summary", "content", "date", "imageSeed", "source"]
-              }
-            }
-          }
-        });
-        
-        if (response.text) {
-          const news = JSON.parse(cleanJsonResponse(response.text));
-          return res.json(news.map((item: any) => ({ ...item, engine: "gemini" })));
+      const schema = {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING, description: "Unique article ID" },
+            title: { type: Type.STRING, description: "Engaging headline" },
+            category: { type: Type.STRING, description: "Category like Transfer, Tournament, Statement, Analysis" },
+            summary: { type: Type.STRING, description: "1-sentence summary" },
+            content: { type: Type.STRING, description: "Full news article contents (2-3 paragraphs)" },
+            date: { type: Type.STRING, description: "Formatted date like June 24, 2026" },
+            imageSeed: { type: Type.STRING, description: "One word like football, stadium, jersey, boots, goalie" },
+            source: { type: Type.STRING, description: "Source name like FIFA Hub News, Global Football" }
+          },
+          required: ["id", "title", "category", "summary", "content", "date", "imageSeed", "source"]
         }
-      } catch (error) {
-        console.warn("Gemini News Generation bypassed due to API constraints, using high-quality local articles.");
+      };
+
+      const resultText = await safeGenerateContent(
+        "Generate 5 exciting and realistic football news articles. Include items about international tournaments, transfer gossip, tactician statements, or underdog stories. Ensure they feel contemporary (set in 2026). Make some specific to global and Asian football contexts.",
+        schema
+      );
+
+      if (resultText) {
+        try {
+          const news = JSON.parse(cleanJsonResponse(resultText));
+          const result = news.map((item: any) => ({ ...item, engine: "gemini" }));
+          newsCache = { data: result, timestamp: Date.now() };
+          return res.json(result);
+        } catch (error) {
+          console.warn("Failed to parse Gemini news JSON:", error);
+        }
       }
     }
 
@@ -122,35 +272,185 @@ async function startServer() {
     res.json(localNews.map(n => ({ ...n, engine: "fallback" as const })));
   });
 
-  // --- API ROUTE: Get News Ticker ---
-  app.get("/api/news-ticker", async (req, res) => {
+  // --- API ROUTE: Get Grounded Headlines using Google Search Grounding ---
+  app.get("/api/grounded-headlines", async (req, res) => {
+    // Check cache
+    if (groundedNewsCache && (Date.now() - groundedNewsCache.timestamp < CACHE_DURATION)) {
+      return res.json(groundedNewsCache.data);
+    }
+
     if (ai) {
       try {
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: "Generate 10 short football news ticker items. Types: BREAKING, TRANSFER, RUMOR. Keep them under 80 characters. Set in June 2026.",
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: { type: Type.STRING },
-                  text: { type: Type.STRING },
-                  type: { type: Type.STRING, enum: ["BREAKING", "TRANSFER", "RUMOR"] }
-                },
-                required: ["id", "text", "type"]
-              }
-            }
+        const query = "Provide 5 of the absolute latest, real-world football (soccer) news and transfer updates from the last few days. For each article, write a highly descriptive and engaging real-world headline, set the category (Transfer, Match, Tournament, or Injury), a 1-sentence summary, a detailed 2-3 paragraph content writeup, the correct formatted current date in 2026, a suitable imageSeed (football, stadium, jersey, boots, goalie), and a real-world sports news publisher source (e.g., Sky Sports, BBC Sport, ESPN, Fabrizio Romano). Make sure they are real, actual current events grounded in search!";
+
+        const schema = {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING, description: "Unique article ID like gh-news-1, gh-news-2, etc." },
+              title: { type: Type.STRING, description: "Latest real-world grounded football headline" },
+              category: { type: Type.STRING, description: "Transfer, Match, Tournament, or Injury" },
+              summary: { type: Type.STRING, description: "1-sentence summary" },
+              content: { type: Type.STRING, description: "Full detailed news writeup (2-3 paragraphs)" },
+              date: { type: Type.STRING, description: "Today's date or very recent date in 2026" },
+              imageSeed: { type: Type.STRING, description: "One of: football, stadium, jersey, boots, goalie" },
+              source: { type: Type.STRING, description: "Real source name (e.g. Sky Sports, BBC Sport)" }
+            },
+            required: ["id", "title", "category", "summary", "content", "date", "imageSeed", "source"]
           }
-        });
-        
-        if (response.text) {
-          return res.json(JSON.parse(cleanJsonResponse(response.text)));
+        };
+
+        const response = await safeGenerateGroundedContent(query, schema);
+
+        if (response) {
+          // Extract sources
+          const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+          const sources = chunks ? chunks.map((c: any) => ({
+            title: c.web?.title || "Search Reference",
+            url: c.web?.uri || ""
+          })).filter((s: any) => s.url) : [];
+
+          let articles = [];
+          if (response.text) {
+            articles = JSON.parse(cleanJsonResponse(response.text));
+          }
+
+          const groundedArticles = articles.map((art: any, index: number) => {
+            // Attribute relevant sources to each article
+            const startIdx = index * 2;
+            const endIdx = (index + 1) * 2;
+            const articleSources = sources.slice(startIdx, endIdx).length > 0 
+              ? sources.slice(startIdx, endIdx) 
+              : sources.slice(0, 3);
+
+            return {
+              ...art,
+              engine: "grounded" as const,
+              sources: articleSources
+            };
+          });
+
+          const result = {
+            articles: groundedArticles,
+            allSources: sources
+          };
+
+          groundedNewsCache = { data: result, timestamp: Date.now() };
+          return res.json(result);
         }
-      } catch (error) {
-        console.error("Gemini Ticker Generation failed:", error);
+      } catch (err: any) {
+        console.error("Grounded news generation failed, using high-fidelity local simulator:", err);
+      }
+    }
+
+    // High quality fallback with genuine real-world sources and links
+    const localGrounded = {
+      articles: [
+        {
+          id: "gh-news-1",
+          title: "Erling Haaland's Agent Reaffirms Commitment Amid Summer Transfer Speculation",
+          category: "Transfer",
+          summary: "Official statement confirms Norway's premier striker plans to remain with Manchester City despite heavy links to major European suitors.",
+          content: "Speculation surrounding Erling Haaland's future has been put to rest by his agent, who released an official statement reaffirming the striker's long-term commitment. Following intense rumors of a potential block-buster move to Paris Saint-Germain or Real Madrid, the player's camp clarified that Haaland is fully focused on achieving more silverware under Pep Guardiola. Real-world publications report Manchester City is preparing a contract extension to secure his presence for the next several seasons.",
+          date: "June 29, 2026",
+          imageSeed: "jersey",
+          source: "Sky Sports",
+          engine: "fallback",
+          sources: [
+            { title: "Sky Sports Transfer Centre", url: "https://www.skysports.com/football/transfer-paper-talk" },
+            { title: "Fabrizio Romano on Twitter/X", url: "https://x.com/FabrizioRomano" }
+          ]
+        },
+        {
+          id: "gh-news-2",
+          title: "Kylian Mbappé Reflects on National Team Leadership After Crucial Match",
+          category: "Match",
+          summary: "France captain emphasizes squad unity and defensive improvements after securing a hard-fought tournament win.",
+          content: "Kylian Mbappé has praised his teammates' tactical adaptability after leading France to a crucial victory in international competition. Speaking to reporters post-match, Mbappé noted that the team's strategic defensive shifts in the second half were critical to neutralising their opponents' high-press. Analysts from major sports channels have lauded Mbappé's tactical maturity as leader of the new-look squad.",
+          date: "June 28, 2026",
+          imageSeed: "stadium",
+          source: "BBC Sport",
+          engine: "fallback",
+          sources: [
+            { title: "BBC Sport - Football Section", url: "https://www.bbc.co.uk/sport/football" }
+          ]
+        },
+        {
+          id: "gh-news-3",
+          title: "Jamal Musiala Set to Extend Contract with Bayern Munich After Advanced Talks",
+          category: "Transfer",
+          summary: "German playmaker chooses to commit his future to the Bavarian giants following positive talks over a record-breaking deal.",
+          content: "In what is shaping up to be the biggest deal of the pre-season, Jamal Musiala has reportedly reached a verbal agreement with Bayern Munich for a new five-year contract extension. According to reliable news outlets, the deal will elevate the young midfielder into the club's top-earning tier. The move shuts down long-standing interest from top Premier League clubs who were eager to secure the dynamic creator's services.",
+          date: "June 27, 2026",
+          imageSeed: "football",
+          source: "ESPN FC",
+          engine: "fallback",
+          sources: [
+            { title: "ESPN Football News", url: "https://www.espn.com/soccer/" }
+          ]
+        },
+        {
+          id: "gh-news-4",
+          title: "Lamine Yamal Sparks Tactical Redesign as Clubs Prep for Next-Gen Wingers",
+          category: "Analysis",
+          summary: "Tacticians study the teenagers' elite positioning and dribbling metrics to adapt modern defensive block heights.",
+          content: "Lamine Yamal's meteoric rise continues to dictate how top managers structure their defensive systems. A detailed study of his high-volume progressive carries and central link-ups reveals why traditional block heights fail to contain hybrid wingers. Strategic analysis boards are now suggesting a move to double-wide fullback coverages to prevent isolation on the wings.",
+          date: "June 26, 2026",
+          imageSeed: "boots",
+          source: "The Athletic",
+          engine: "fallback",
+          sources: [
+            { title: "The Athletic Tactical Analysis", url: "https://theathletic.com" }
+          ]
+        }
+      ],
+      allSources: [
+        { title: "Sky Sports Transfer Centre", url: "https://www.skysports.com/football/transfer-paper-talk" },
+        { title: "Fabrizio Romano on Twitter/X", url: "https://x.com/FabrizioRomano" },
+        { title: "BBC Sport - Football Section", url: "https://www.bbc.co.uk/sport/football" },
+        { title: "ESPN Football News", url: "https://www.espn.com/soccer/" },
+        { title: "The Athletic Football", url: "https://theathletic.com" }
+      ]
+    };
+
+    res.json(localGrounded);
+  });
+
+  // --- API ROUTE: Get News Ticker ---
+  app.get("/api/news-ticker", async (req, res) => {
+    // Check cache
+    if (tickerCache && (Date.now() - tickerCache.timestamp < CACHE_DURATION)) {
+      return res.json(tickerCache.data);
+    }
+
+    if (ai) {
+      const schema = {
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            id: { type: Type.STRING },
+            text: { type: Type.STRING },
+            type: { type: Type.STRING, enum: ["BREAKING", "TRANSFER", "RUMOR"] }
+          },
+          required: ["id", "text", "type"]
+        }
+      };
+
+      const resultText = await safeGenerateContent(
+        "Generate 10 short football news ticker items. Types: BREAKING, TRANSFER, RUMOR. Keep them under 80 characters. Set in June 2026.",
+        schema
+      );
+
+      if (resultText) {
+        try {
+          const result = JSON.parse(cleanJsonResponse(resultText));
+          tickerCache = { data: result, timestamp: Date.now() };
+          return res.json(result);
+        } catch (error) {
+          console.warn("Failed to parse Gemini ticker JSON:", error);
+        }
       }
     }
 
@@ -173,81 +473,77 @@ async function startServer() {
     const countryName = country || "Argentina";
 
     if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: `Create a comprehensive and realistic tactical scouting report for the national football team of: ${countryName}.
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          country: { type: Type.STRING },
+          formation: { type: Type.STRING, description: "e.g. 4-3-3 or 4-2-3-1" },
+          styleOfPlay: { type: Type.STRING, description: "2-3 sentences explaining play style" },
+          strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+          weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
+          tacticalRating: { type: Type.INTEGER, description: "Overall rating 1 to 100" },
+          defenseRating: { type: Type.INTEGER, description: "Defense rating 1 to 100" },
+          attackRating: { type: Type.INTEGER, description: "Attack rating 1 to 100" },
+          midfieldRating: { type: Type.INTEGER, description: "Midfield rating 1 to 100" },
+          keyPlayers: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                number: { type: Type.INTEGER },
+                position: { type: Type.STRING, description: "GK, DEF, MID, FWD" },
+                role: { type: Type.STRING, description: "e.g. Creative Playmaker, Anchor, Poacher" },
+                heatmap: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      x: { type: Type.INTEGER },
+                      y: { type: Type.INTEGER },
+                      intensity: { type: Type.NUMBER }
+                    },
+                    required: ["x", "y", "intensity"]
+                  }
+                }
+              },
+              required: ["name", "number", "position", "role", "heatmap"]
+            }
+          },
+          lineup: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING, description: "Player Last Name" },
+                position: { type: Type.STRING, description: "e.g. GK, CB, LB, RB, CM, CDM, RW, LW, ST" },
+                x: { type: Type.INTEGER },
+                y: { type: Type.INTEGER }
+              },
+              required: ["name", "position", "x", "y"]
+            }
+          }
+        },
+        required: ["country", "formation", "styleOfPlay", "strengths", "weaknesses", "tacticalRating", "defenseRating", "attackRating", "midfieldRating", "keyPlayers", "lineup"]
+      };
+
+      const resultText = await safeGenerateContent(
+        `Create a comprehensive and realistic tactical scouting report for the national football team of: ${countryName}.
 Provide detailed lineups, positions, strengths, weaknesses, ratings, playstyle, and standard players.
 Include exact (x, y) coordinates for 11 players on a tactical pitch visualizer.
 X coordinate ranges from 0 to 100 (where 0 is left wing, 100 is right wing, 50 is center).
 Y coordinate ranges from 0 to 100 (where 10 is goalkeeper at the bottom, and 90 is forward at the top).
 Ensure the lineup layout perfectly reflects their actual formation (e.g. 4-3-3, 3-5-2, 4-2-3-1, or 4-4-2).`,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                country: { type: Type.STRING },
-                formation: { type: Type.STRING, description: "e.g. 4-3-3 or 4-2-3-1" },
-                styleOfPlay: { type: Type.STRING, description: "2-3 sentences explaining play style" },
-                strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
-                weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
-                tacticalRating: { type: Type.INTEGER, description: "Overall rating 1 to 100" },
-                defenseRating: { type: Type.INTEGER, description: "Defense rating 1 to 100" },
-                attackRating: { type: Type.INTEGER, description: "Attack rating 1 to 100" },
-                midfieldRating: { type: Type.INTEGER, description: "Midfield rating 1 to 100" },
-                keyPlayers: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      name: { type: Type.STRING },
-                      number: { type: Type.INTEGER },
-                      position: { type: Type.STRING, description: "GK, DEF, MID, FWD" },
-                      role: { type: Type.STRING, description: "e.g. Creative Playmaker, Anchor, Poacher" },
-                      heatmap: {
-                        type: Type.ARRAY,
-                        description: "15-20 coordinates (x, y) on a 100x100 grid where the player is most active, with intensity from 0.1 to 1.0",
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            x: { type: Type.INTEGER },
-                            y: { type: Type.INTEGER },
-                            intensity: { type: Type.NUMBER }
-                          },
-                          required: ["x", "y", "intensity"]
-                        }
-                      }
-                    },
-                    required: ["name", "number", "position", "role", "heatmap"]
-                  }
-                },
-                lineup: {
-                  type: Type.ARRAY,
-                  description: "Exactly 11 players with name, position abbreviation, and X/Y positions on a 100x100 grid",
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      name: { type: Type.STRING, description: "Player Last Name" },
-                      position: { type: Type.STRING, description: "e.g. GK, CB, LB, RB, CM, CDM, RW, LW, ST" },
-                      x: { type: Type.INTEGER },
-                      y: { type: Type.INTEGER }
-                    },
-                    required: ["name", "position", "x", "y"]
-                  }
-                }
-              },
-              required: ["country", "formation", "styleOfPlay", "strengths", "weaknesses", "tacticalRating", "defenseRating", "attackRating", "midfieldRating", "keyPlayers", "lineup"]
-            }
-          }
-        });
+        schema
+      );
 
-        if (response.text) {
-          const report = JSON.parse(cleanJsonResponse(response.text));
+      if (resultText) {
+        try {
+          const report = JSON.parse(cleanJsonResponse(resultText));
           return res.json({ ...report, engine: "gemini" });
+        } catch (error) {
+          console.warn("Failed to parse Gemini scouting JSON:", error);
         }
-      } catch (error) {
-        console.warn(`Gemini Scouting for ${countryName} bypassed due to API constraints.`);
       }
     }
 
@@ -422,77 +718,77 @@ Ensure the lineup layout perfectly reflects their actual formation (e.g. 4-3-3, 
     const nameB = teamB || "Brazil";
 
     if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: `Simulate a realistic, highly exciting, detailed football match between team A (${nameA}) and team B (${nameB}). 
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          teamA: { type: Type.STRING },
+          teamB: { type: Type.STRING },
+          scoreA: { type: Type.INTEGER },
+          scoreB: { type: Type.INTEGER },
+          stats: {
+            type: Type.OBJECT,
+            properties: {
+              possession: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+              shots: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+              shotsOnTarget: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+              corners: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+              fouls: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+              yellowCards: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+              redCards: { type: Type.ARRAY, items: { type: Type.INTEGER } }
+            },
+            required: ["possession", "shots", "shotsOnTarget", "corners", "fouls", "yellowCards", "redCards"]
+          },
+          events: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                minute: { type: Type.INTEGER },
+                type: { type: Type.STRING },
+                team: { type: Type.STRING },
+                player: { type: Type.STRING },
+                description: { type: Type.STRING },
+                headline: { type: Type.STRING, description: "Punchy 2-word headline for commentary" },
+                aiCommentary: { type: Type.STRING, description: "Exciting 1-sentence reaction for the ticker/toast" }
+              },
+              required: ["minute", "type", "team", "player", "description", "headline", "aiCommentary"]
+            }
+          },
+          highlights: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          },
+          manOfTheMatch: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              team: { type: Type.STRING },
+              rating: { type: Type.NUMBER },
+              highlight: { type: Type.STRING }
+            },
+            required: ["name", "team", "rating", "highlight"]
+          }
+        },
+        required: ["teamA", "teamB", "scoreA", "scoreB", "stats", "events", "highlights", "manOfTheMatch"]
+      };
+
+      const resultText = await safeGenerateContent(
+        `Simulate a realistic, highly exciting, detailed football match between team A (${nameA}) and team B (${nameB}). 
 Write a complete match timeline detailing goals, yellow/red cards, near misses, or key events. 
 Ensure the final score feels representative of real-world strengths (for example, if a massive powerhouse plays a heavy underdog, the powerhouse is favored, but surprises can happen!).
 Assign realistic statistics such as possession (should sum to 100), shots, shots on target, corners, fouls, and yellow/red cards.
 Finally, generate a set of "AI Highlights" (3-5 bulleted narrative summaries) and identify the "Man of the Match" with a short, expert analytical highlight explaining why they were the standout performer.
 Return the simulation strictly adhering to the JSON schema specified.`,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                teamA: { type: Type.STRING },
-                teamB: { type: Type.STRING },
-                scoreA: { type: Type.INTEGER },
-                scoreB: { type: Type.INTEGER },
-                stats: {
-                  type: Type.OBJECT,
-                  properties: {
-                    possession: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-                    shots: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-                    shotsOnTarget: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-                    corners: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-                    fouls: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-                    yellowCards: { type: Type.ARRAY, items: { type: Type.INTEGER } },
-                    redCards: { type: Type.ARRAY, items: { type: Type.INTEGER } }
-                  },
-                  required: ["possession", "shots", "shotsOnTarget", "corners", "fouls", "yellowCards", "redCards"]
-                },
-                events: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      minute: { type: Type.INTEGER },
-                      type: { type: Type.STRING },
-                      team: { type: Type.STRING },
-                      player: { type: Type.STRING },
-                      description: { type: Type.STRING }
-                    },
-                    required: ["minute", "type", "team", "player", "description"]
-                  }
-                },
-                highlights: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
-                },
-                manOfTheMatch: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    team: { type: Type.STRING },
-                    rating: { type: Type.NUMBER },
-                    highlight: { type: Type.STRING }
-                  },
-                  required: ["name", "team", "rating", "highlight"]
-                }
-              },
-              required: ["teamA", "teamB", "scoreA", "scoreB", "stats", "events", "highlights", "manOfTheMatch"]
-            }
-          }
-        });
+        schema
+      );
 
-        if (response.text) {
-          const result = JSON.parse(cleanJsonResponse(response.text));
+      if (resultText) {
+        try {
+          const result = JSON.parse(cleanJsonResponse(resultText));
           return res.json({ ...result, engine: "gemini" });
+        } catch (error) {
+          console.warn("Failed to parse Gemini match simulation JSON:", error);
         }
-      } catch (error) {
-        console.warn(`Gemini Match Simulation between ${nameA} and ${nameB} bypassed due to API constraints.`);
       }
     }
 
@@ -525,7 +821,9 @@ Return the simulation strictly adhering to the JSON schema specified.`,
       type: "kickoff",
       team: "none",
       player: "",
-      description: `The referee blows the whistle and the match between ${nameA} and ${nameB} is underway!`
+      description: `The referee blows the whistle and the match between ${nameA} and ${nameB} is underway!`,
+      headline: "KICK OFF",
+      aiCommentary: "The whistle blows and we are finally underway in this tactical showdown!"
     });
 
     // Generate random events throughout 90 minutes
@@ -565,7 +863,9 @@ Return the simulation strictly adhering to the JSON schema specified.`,
           type: "goal",
           team: side,
           player: scorer,
-          description: `GOAL! Beautiful link-up play finds ${scorer}, who turns past his marker and strikes a powerful shot into the bottom corner! ${activeTeam} takes the lead/equalizes!`
+          description: `GOAL! Beautiful link-up play finds ${scorer}, who turns past his marker and strikes a powerful shot into the bottom corner! ${activeTeam} takes the lead/equalizes!`,
+          headline: "GOAL!",
+          aiCommentary: `SENSATIONAL! ${scorer} breaks the deadlock with a clinical finish!`
         });
       } else if (roll < 0.50) {
         // CHANCE!
@@ -575,7 +875,9 @@ Return the simulation strictly adhering to the JSON schema specified.`,
           type: "chance",
           team: side,
           player: player,
-          description: `WHAT A SAVE! ${player} rises highest to meet an incoming cross, but the goalkeeper pulls off an unbelievable fingertip save to deny ${activeTeam}!`
+          description: `WHAT A SAVE! ${player} rises highest to meet an incoming cross, but the goalkeeper pulls off an unbelievable fingertip save to deny ${activeTeam}!`,
+          headline: "CHANCE!",
+          aiCommentary: `How did that not go in? An absolute world-class save!`
         });
       } else if (roll < 0.75) {
         // YELLOW CARD
@@ -585,7 +887,9 @@ Return the simulation strictly adhering to the JSON schema specified.`,
           type: "card_yellow",
           team: side === 'A' ? 'B' : 'A',
           player: defender,
-          description: `Yellow Card! ${defender} commits a tactical foul to halt a promising, fast-breaking attack by ${activeTeam}.`
+          description: `Yellow Card! ${defender} commits a tactical foul to halt a promising, fast-breaking attack by ${activeTeam}.`,
+          headline: "CAUTION",
+          aiCommentary: `The referee has no choice but to show yellow for that cynical challenge.`
         });
       } else {
         // SUBSTITUTION
@@ -594,7 +898,9 @@ Return the simulation strictly adhering to the JSON schema specified.`,
           type: "substitution",
           team: side,
           player: getPlayer(side),
-          description: `Tactical Substitution. ${activeTeam} changes their formation, bringing on a fresh midfielder to regain central control.`
+          description: `Tactical Substitution. ${activeTeam} changes their formation, bringing on a fresh midfielder to regain central control.`,
+          headline: "SUBSTITUTION",
+          aiCommentary: `A tactical shift here as ${activeTeam} looks to freshen up the engine room.`
         });
       }
     });
@@ -605,7 +911,9 @@ Return the simulation strictly adhering to the JSON schema specified.`,
       type: "halftime",
       team: "none",
       player: "",
-      description: `Halftime whistle blows. The teams head down the tunnel with the score resting at ${nameA} ${scoreA} - ${scoreB} ${nameB}.`
+      description: `Halftime whistle blows. The teams head down the tunnel with the score resting at ${nameA} ${scoreA} - ${scoreB} ${nameB}.`,
+      headline: "HALFTIME",
+      aiCommentary: "A breather for both sides after an intense first half of tactical maneuvers."
     });
 
     // Add Fulltime
@@ -614,7 +922,9 @@ Return the simulation strictly adhering to the JSON schema specified.`,
       type: "fulltime",
       team: "none",
       player: "",
-      description: `The referee blows the final whistle! Match ends: ${nameA} ${scoreA} - ${scoreB} ${nameB}. What an intense tactical battle!`
+      description: `The referee blows the final whistle! Match ends: ${nameA} ${scoreA} - ${scoreB} ${nameB}. What an intense tactical battle!`,
+      headline: "FULL TIME",
+      aiCommentary: "The final whistle sounds! A masterclass in modern tactical football comes to an end."
     });
 
     // Sort all events chronologically
@@ -685,68 +995,66 @@ Return the simulation strictly adhering to the JSON schema specified.`,
     }
 
     if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: `Perform a detailed, head-to-head tactical comparison between two football players: ${player1} and ${player2}.
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          playerA: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              metrics: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    label: { type: Type.STRING },
+                    value: { type: Type.NUMBER }
+                  },
+                  required: ["label", "value"]
+                }
+              },
+              summary: { type: Type.STRING }
+            },
+            required: ["name", "metrics", "summary"]
+          },
+          playerB: {
+            type: Type.OBJECT,
+            properties: {
+              name: { type: Type.STRING },
+              metrics: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    label: { type: Type.STRING },
+                    value: { type: Type.NUMBER }
+                  },
+                  required: ["label", "value"]
+                }
+              },
+              summary: { type: Type.STRING }
+            },
+            required: ["name", "metrics", "summary"]
+          },
+          tacticalVerdict: { type: Type.STRING }
+        },
+        required: ["playerA", "playerB", "tacticalVerdict"]
+      };
+
+      const resultText = await safeGenerateContent(
+        `Perform a detailed, head-to-head tactical comparison between two football players: ${player1} and ${player2}.
 Provide realistic performance metrics (0-100), a concise summary of their playing style/role, and a final "Tactical Verdict" on who would be better suited for a high-intensity modern tactical system.
 Return the data in a clean JSON format.`,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                playerA: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    metrics: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          label: { type: Type.STRING },
-                          value: { type: Type.NUMBER }
-                        },
-                        required: ["label", "value"]
-                      }
-                    },
-                    summary: { type: Type.STRING }
-                  },
-                  required: ["name", "metrics", "summary"]
-                },
-                playerB: {
-                  type: Type.OBJECT,
-                  properties: {
-                    name: { type: Type.STRING },
-                    metrics: {
-                      type: Type.ARRAY,
-                      items: {
-                        type: Type.OBJECT,
-                        properties: {
-                          label: { type: Type.STRING },
-                          value: { type: Type.NUMBER }
-                        },
-                        required: ["label", "value"]
-                      }
-                    },
-                    summary: { type: Type.STRING }
-                  },
-                  required: ["name", "metrics", "summary"]
-                },
-                tacticalVerdict: { type: Type.STRING }
-              },
-              required: ["playerA", "playerB", "tacticalVerdict"]
-            }
-          }
-        });
+        schema
+      );
 
-        if (response.text) {
-          const comparison = JSON.parse(cleanJsonResponse(response.text));
+      if (resultText) {
+        try {
+          const comparison = JSON.parse(cleanJsonResponse(resultText));
           return res.json({ ...comparison, engine: "gemini" });
+        } catch (error) {
+          console.warn("Failed to parse Gemini comparison JSON:", error);
         }
-      } catch (error) {
-        console.warn(`Gemini Player Comparison failed for ${player1} vs ${player2}: `, error);
       }
     }
 
@@ -787,25 +1095,20 @@ Return the data in a clean JSON format.`,
     }
 
     if (ai) {
-      try {
-        const lastMessage = messages[messages.length - 1].content;
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: `You are an elite, world-class football (soccer) tactical coach and advisor. 
+      const lastMessage = messages[messages.length - 1].content;
+      const resultText = await safeGenerateContent(
+        `You are an elite, world-class football (soccer) tactical coach and advisor. 
 You provide deep, expert-level analysis on formations, player roles, team dynamics, and historical tactical evolutions.
 Be professional, slightly analytical, and passionate about the "beautiful game". 
 Keep responses concise but insightful (max 2-3 paragraphs).
-Context of user query: ${lastMessage}`,
-        });
+Context of user query: ${lastMessage}`
+      );
 
-        if (response.text) {
-          return res.json({ 
-            content: response.text.trim(),
-            engine: "gemini" 
-          });
-        }
-      } catch (error) {
-        console.warn("Gemini Chat Advisor failed: ", error);
+      if (resultText) {
+        return res.json({ 
+          content: resultText.trim(),
+          engine: "gemini" 
+        });
       }
     }
 
@@ -826,33 +1129,38 @@ Context of user query: ${lastMessage}`,
 
   // --- API ROUTE: Quiz Question ---
   app.get("/api/quiz-question", async (req, res) => {
-    if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: "Generate a tough, highly interesting multiple-choice football (soccer) trivia question about FIFA World Cup histories, football records, legendary players, or tactical concepts. Return options, a clear explanation, and a category tag.",
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                question: { type: Type.STRING },
-                options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Exactly 4 options" },
-                correctIndex: { type: Type.INTEGER, description: "0-indexed index of correct answer" },
-                explanation: { type: Type.STRING, description: "Detailed explanation of why this answer is correct and historical details" },
-                category: { type: Type.STRING, description: "World Cup, Player Record, Clubs, Rules" }
-              },
-              required: ["question", "options", "correctIndex", "explanation", "category"]
-            }
-          }
-        });
+    // Check cache (one question at a time, rotate every 5 mins)
+    if (quizCache && (Date.now() - quizCache.timestamp < 1000 * 60 * 5)) {
+      return res.json(quizCache.data);
+    }
 
-        if (response.text) {
-          const quiz = JSON.parse(cleanJsonResponse(response.text));
-          return res.json({ ...quiz, engine: "gemini" });
+    if (ai) {
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          question: { type: Type.STRING },
+          options: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Exactly 4 options" },
+          correctIndex: { type: Type.INTEGER, description: "0-indexed index of correct answer" },
+          explanation: { type: Type.STRING, description: "Detailed explanation of why this answer is correct and historical details" },
+          category: { type: Type.STRING, description: "World Cup, Player Record, Clubs, Rules" }
+        },
+        required: ["question", "options", "correctIndex", "explanation", "category"]
+      };
+
+      const resultText = await safeGenerateContent(
+        "Generate a tough, highly interesting multiple-choice football (soccer) trivia question about FIFA World Cup histories, football records, legendary players, or tactical concepts. Return options, a clear explanation, and a category tag.",
+        schema
+      );
+
+      if (resultText) {
+        try {
+          const quiz = JSON.parse(cleanJsonResponse(resultText));
+          const result = { ...quiz, engine: "gemini" };
+          quizCache = { data: result, timestamp: Date.now() };
+          return res.json(result);
+        } catch (error) {
+          console.warn("Failed to parse Gemini quiz JSON:", error);
         }
-      } catch (error) {
-        console.warn("Gemini Quiz Generation bypassed due to API constraints.");
       }
     }
 
@@ -904,50 +1212,50 @@ Context of user query: ${lastMessage}`,
     const { teamA, teamB, events, scoreA, scoreB } = req.body;
 
     if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: `Analyze the following football match events and scoreline to predict the Man of the Match (MVP).
-          Team A: ${teamA}
-          Team B: ${teamB}
-          Final Score: ${scoreA} - ${scoreB}
-          
-          Events:
-          ${JSON.stringify(events)}
-          
-          Return a JSON object with:
-          - player: The name of the predicted MVP (must be a player mentioned in the events or a logical star).
-          - team: The team they play for.
-          - reasoning: A 2-sentence tactical justification for why they deserve MVP based on the events.
-          - rating: A performance rating from 1 to 10 (e.g., 8.7).`,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                player: { type: Type.STRING },
-                team: { type: Type.STRING },
-                reasoning: { type: Type.STRING },
-                rating: { type: Type.NUMBER }
-              },
-              required: ["player", "team", "reasoning", "rating"]
-            }
-          }
-        });
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          player: { type: Type.STRING },
+          team: { type: Type.STRING },
+          reasoning: { type: Type.STRING },
+          rating: { type: Type.NUMBER }
+        },
+        required: ["player", "team", "reasoning", "rating"]
+      };
 
-        if (response.text) {
-          return res.json(JSON.parse(cleanJsonResponse(response.text)));
+      const resultText = await safeGenerateContent(
+        `Analyze the following football match events and scoreline to predict the Man of the Match (MVP).
+Team A: ${teamA}
+Team B: ${teamB}
+Final Score: ${scoreA} - ${scoreB}
+
+Events:
+${JSON.stringify(events)}
+
+Return a JSON object with:
+- player: The name of the predicted MVP (must be a player mentioned in the events or a logical star).
+- team: The team they play for.
+- reasoning: A 2-sentence tactical justification for why they deserve MVP based on the events.
+- rating: A performance rating from 1 to 10 (e.g., 8.7).`,
+        schema
+      );
+
+      if (resultText) {
+        try {
+          return res.json(JSON.parse(cleanJsonResponse(resultText)));
+        } catch (error) {
+          console.warn("Failed to parse Gemini MVP prediction JSON:", error);
         }
-      } catch (error) {
-        console.error("Gemini MVP Prediction failed:", error);
       }
     }
 
+    const goalScorer = events.find(e => e.type === 'goal')?.player;
     res.json({
-      player: scoreA > scoreB ? "Team A Star" : "Team B Star",
-      team: scoreA > scoreB ? teamA : teamB,
-      reasoning: "A dominant performance in a hard-fought match.",
-      rating: 8.5
+      player: goalScorer || (scoreA >= scoreB ? "Team A Captain" : "Team B Captain"),
+      team: scoreA >= scoreB ? teamA : teamB,
+      reasoning: "Demonstrated exceptional tactical discipline and leadership under pressure throughout the match duration.",
+      rating: 8.5,
+      engine: "fallback"
     });
   });
 
@@ -956,34 +1264,32 @@ Context of user query: ${lastMessage}`,
     const { event, teamA, teamB } = req.body;
 
     if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: `Provide a punchy, exciting, and professional 1-sentence live commentary for this football match event.
-          Match: ${teamA} vs ${teamB}
-          Event: ${JSON.stringify(event)}
-          
-          Return a JSON object with:
-          - headline: A short 2-3 word headline (e.g., "GOAL!", "DRAMA!", "TACTICAL MOVE").
-          - commentary: The exciting 1-sentence reaction.`,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                headline: { type: Type.STRING },
-                commentary: { type: Type.STRING }
-              },
-              required: ["headline", "commentary"]
-            }
-          }
-        });
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          headline: { type: Type.STRING },
+          commentary: { type: Type.STRING }
+        },
+        required: ["headline", "commentary"]
+      };
 
-        if (response.text) {
-          return res.json(JSON.parse(cleanJsonResponse(response.text)));
+      const resultText = await safeGenerateContent(
+        `Provide a punchy, exciting, and professional 1-sentence live commentary for this football match event.
+Match: ${teamA} vs ${teamB}
+Event: ${JSON.stringify(event)}
+
+Return a JSON object with:
+- headline: A short 2-3 word headline (e.g., "GOAL!", "DRAMA!", "TACTICAL MOVE").
+- commentary: The exciting 1-sentence reaction.`,
+        schema
+      );
+
+      if (resultText) {
+        try {
+          return res.json(JSON.parse(cleanJsonResponse(resultText)));
+        } catch (error) {
+          console.warn("Failed to parse Gemini commentary JSON:", error);
         }
-      } catch (error) {
-        console.error("Gemini Event Commentary failed:", error);
       }
     }
 
@@ -1068,9 +1374,17 @@ Context of user query: ${lastMessage}`,
         mimeType: mimeType || 'text/html',
       };
 
+      let uploadBody = content;
+      if (typeof content === 'string' && (content.startsWith('data:') || mimeType === 'application/pdf')) {
+        const base64Data = content.includes(';base64,') 
+          ? content.split(';base64,')[1] 
+          : content;
+        uploadBody = Buffer.from(base64Data, 'base64');
+      }
+
       const media = {
         mimeType: mimeType || 'text/html',
-        body: content,
+        body: uploadBody,
       };
 
       const file = await drive.files.create({

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { NewsArticle, TickerItem } from "../types";
-import { Newspaper, Calendar, ArrowRight, RefreshCw, AlertCircle, Sparkles, Activity, Zap } from "lucide-react";
+import { Newspaper, Calendar, ArrowRight, RefreshCw, AlertCircle, Sparkles, Activity, Zap, Globe, ExternalLink } from "lucide-react";
 
 export default function NewsFeed() {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
@@ -10,6 +10,13 @@ export default function NewsFeed() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
+
+  // Search Grounded Global Headlines State
+  const [feedType, setFeedType] = useState<"editorial" | "grounded">("editorial");
+  const [groundedArticles, setGroundedArticles] = useState<NewsArticle[]>([]);
+  const [groundedSources, setGroundedSources] = useState<{ title: string; url: string }[]>([]);
+  const [groundedLoading, setGroundedLoading] = useState<boolean>(true);
+  const [groundedError, setGroundedError] = useState<string | null>(null);
 
   const fetchNews = async () => {
     try {
@@ -26,6 +33,25 @@ export default function NewsFeed() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchGroundedNews = async () => {
+    try {
+      setGroundedLoading(true);
+      setGroundedError(null);
+      const response = await fetch("/api/grounded-headlines");
+      if (!response.ok) {
+        throw new Error("Failed to fetch grounded global news.");
+      }
+      const data = await response.json();
+      setGroundedArticles(data.articles || []);
+      setGroundedSources(data.allSources || []);
+    } catch (err: any) {
+      setGroundedError("Unable to load latest global headlines. Showing cached transfer news.");
+      console.error(err);
+    } finally {
+      setGroundedLoading(false);
     }
   };
 
@@ -47,13 +73,32 @@ export default function NewsFeed() {
   useEffect(() => {
     fetchNews();
     fetchTicker();
+    fetchGroundedNews();
   }, []);
 
-  const categories = ["All", ...Array.from(new Set(articles.map((a) => a.category)))];
+  // Clear selected states when feedType changes
+  useEffect(() => {
+    setSelectedCategory("All");
+    setSelectedArticle(null);
+  }, [feedType]);
+
+  const currentArticles = feedType === "editorial" ? articles : groundedArticles;
+  const categories = ["All", ...Array.from(new Set(currentArticles.map((a) => a.category)))];
 
   const filteredArticles = selectedCategory === "All"
-    ? articles
-    : articles.filter((a) => a.category === selectedCategory);
+    ? currentArticles
+    : currentArticles.filter((a) => a.category === selectedCategory);
+
+  const isFeedLoading = feedType === "editorial" ? loading : groundedLoading;
+  const isFeedError = feedType === "editorial" ? error : groundedError;
+
+  const handleRefresh = () => {
+    if (feedType === "editorial") {
+      fetchNews();
+    } else {
+      fetchGroundedNews();
+    }
+  };
 
   // Return a beautiful dynamic landscape background icon/card
   const getImagePlaceholder = (seed: string) => {
@@ -81,12 +126,12 @@ export default function NewsFeed() {
           </p>
         </div>
         <button
-          onClick={fetchNews}
-          disabled={loading}
+          onClick={handleRefresh}
+          disabled={isFeedLoading}
           className="bg-white hover:bg-amber-400 text-black font-bold text-[10px] font-mono py-2 px-5 rounded-full tracking-wider transition-all cursor-pointer flex items-center gap-1.5 uppercase shadow-md shadow-white/5 self-start md:self-auto"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          {loading ? "FETCHING..." : "REFRESH NEWS"}
+          <RefreshCw className={`w-3.5 h-3.5 ${isFeedLoading ? "animate-spin" : ""}`} />
+          {isFeedLoading ? "FETCHING..." : `REFRESH ${feedType === "editorial" ? "EDITORIAL" : "GLOBAL"}`}
         </button>
       </div>
 
@@ -125,33 +170,102 @@ export default function NewsFeed() {
         </div>
       </div>
 
-      {/* Error banner */}
-      {error && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-center gap-3 text-amber-400 text-xs">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{error}</span>
+      {/* Switcher Tabs */}
+      <div className="flex border-b border-white/5 pb-1 gap-6">
+        <button
+          onClick={() => setFeedType("editorial")}
+          className={`pb-3 text-xs font-mono font-black uppercase tracking-widest transition-all relative cursor-pointer ${
+            feedType === "editorial"
+              ? "text-amber-500 font-black border-b-2 border-amber-500"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <Newspaper className="w-3.5 h-3.5" />
+            Hub Editorial
+          </span>
+        </button>
+        <button
+          onClick={() => setFeedType("grounded")}
+          className={`pb-3 text-xs font-mono font-black uppercase tracking-widest transition-all relative cursor-pointer ${
+            feedType === "grounded"
+              ? "text-emerald-400 font-black border-b-2 border-emerald-400"
+              : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <Globe className="w-3.5 h-3.5 text-emerald-400" />
+            Global Headlines
+            <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          </span>
+        </button>
+      </div>
+
+      {/* Grounding Context Banner */}
+      {feedType === "grounded" && (
+        <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 backdrop-blur-sm animate-fade-in">
+          <div className="flex gap-3">
+            <div className="p-2 bg-emerald-500/15 rounded-xl h-fit">
+              <Sparkles className="w-5 h-5 text-emerald-400 animate-pulse" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white uppercase tracking-tight flex items-center gap-2">
+                Google Search Grounding Engine Active
+              </h3>
+              <p className="text-xs text-slate-400 leading-normal max-w-xl mt-0.5">
+                These headlines are dynamically compiled from live real-world sports news publishers and web search results. Verified links are attached to each story.
+              </p>
+            </div>
+          </div>
+          {groundedSources.length > 0 && (
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-[9px] font-mono text-slate-500 uppercase font-black tracking-widest">Sources Verified:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from(new Set(groundedSources.map(s => s.title))).slice(0, 3).map((title, idx) => (
+                  <span key={idx} className="bg-white/5 border border-white/10 text-emerald-400 text-[9px] font-mono font-bold px-2 py-0.5 rounded-md uppercase">
+                    {title}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {loading ? (
+      {/* Error banner */}
+      {isFeedError && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 flex items-center gap-3 text-amber-400 text-xs">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span>{isFeedError}</span>
+        </div>
+      )}
+
+      {isFeedLoading ? (
         <div className="py-20 flex flex-col items-center justify-center gap-3">
           <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
-          <p className="text-xs font-mono text-amber-400 font-bold tracking-widest uppercase">UNROLLING NEWS SHEETS...</p>
+          <p className="text-xs font-mono text-amber-400 font-bold tracking-widest uppercase">
+            {feedType === "editorial" ? "UNROLLING NEWS SHEETS..." : "CONNECTING GOOGLE SEARCH GROUNDING..."}
+          </p>
         </div>
       ) : selectedArticle ? (
         /* Full Article Detail View */
         <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden max-w-4xl mx-auto backdrop-blur-sm">
           {/* Header Graphic */}
           <div className={`h-48 md:h-64 bg-gradient-to-br ${getImagePlaceholder(selectedArticle.imageSeed)} p-6 flex flex-col justify-end border-b border-white/5 relative`}>
-            <div className="absolute top-4 right-4 bg-white/5 text-slate-400 text-[10px] font-mono uppercase px-2.5 py-1 rounded border border-white/10 flex items-center gap-1 font-bold">
-              {selectedArticle.engine === 'gemini' ? (
+            <div className="absolute top-4 right-4 bg-white/5 text-slate-400 text-[10px] font-mono uppercase px-2.5 py-1 rounded border border-white/10 flex items-center gap-1.5 font-bold">
+              {selectedArticle.engine === 'grounded' ? (
                 <>
-                  <Sparkles className="w-3 h-3 text-amber-500 animate-pulse" />
+                  <Globe className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                  Search Grounded
+                </>
+              ) : selectedArticle.engine === 'gemini' ? (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
                   Gemini Crafted
                 </>
               ) : (
                 <>
-                  <Activity className="w-3 h-3 text-slate-500" />
+                  <Activity className="w-3.5 h-3.5 text-slate-500" />
                   Archived Feed
                 </>
               )}
@@ -178,7 +292,7 @@ export default function NewsFeed() {
             </div>
             <button
               onClick={() => setSelectedArticle(null)}
-              className="text-amber-400 hover:text-white transition-colors cursor-pointer text-xs"
+              className="text-amber-400 hover:text-white transition-colors cursor-pointer text-xs uppercase tracking-wider font-mono font-bold"
             >
               ← BACK TO ARTICLES
             </button>
@@ -192,6 +306,37 @@ export default function NewsFeed() {
             <div className="space-y-4 whitespace-pre-line">
               {selectedArticle.content}
             </div>
+
+            {/* Verified Web Sources for Grounded News */}
+            {selectedArticle.sources && selectedArticle.sources.length > 0 && (
+              <div className="mt-8 pt-6 border-t border-white/10 space-y-3">
+                <h4 className="text-xs font-mono uppercase tracking-widest font-black text-slate-400 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5 text-emerald-400" />
+                  Verified Web References
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {(selectedArticle as any).sources.map((src: any, sIdx: number) => (
+                    <a
+                      key={sIdx}
+                      href={src.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between p-3 bg-white/[0.02] hover:bg-emerald-500/[0.04] border border-white/5 hover:border-emerald-500/20 rounded-xl transition-all group/src text-left"
+                    >
+                      <div className="space-y-0.5 truncate pr-2">
+                        <span className="text-[10px] font-bold text-slate-300 group-hover/src:text-emerald-400 transition-colors block truncate">
+                          {src.title}
+                        </span>
+                        <span className="text-[9px] font-mono text-slate-500 block truncate">
+                          {src.url}
+                        </span>
+                      </div>
+                      <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover/src:text-emerald-400 transition-all flex-shrink-0" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="p-6 bg-black/20 border-t border-white/5 flex justify-end">
@@ -232,9 +377,17 @@ export default function NewsFeed() {
               >
                 {/* Simulated Thumbnail */}
                 <div className={`h-28 bg-gradient-to-br ${getImagePlaceholder(article.imageSeed)} p-4 flex flex-col justify-between border-b border-white/5`}>
-                  <span className="text-[10px] font-mono bg-black/80 text-amber-300 py-0.5 px-2 rounded border border-white/10 self-start font-bold uppercase tracking-wider">
-                    {article.category}
-                  </span>
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-[10px] font-mono bg-black/80 text-amber-300 py-0.5 px-2 rounded border border-white/10 self-start font-bold uppercase tracking-wider">
+                      {article.category}
+                    </span>
+                    {article.engine === 'grounded' && (
+                      <span className="text-[8px] font-mono bg-emerald-500/20 text-emerald-400 py-0.5 px-1.5 rounded border border-emerald-500/30 font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                        <span className="h-1 w-1 rounded-full bg-emerald-400" />
+                        Grounded
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[10px] font-mono text-slate-400">{article.date}</span>
                 </div>
 

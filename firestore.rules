@@ -80,13 +80,13 @@ service cloud.firestore {
     }
 
     match /chats/{chatId} {
-      allow read: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
       allow delete: if false;
     }
 
     match /comparisons/{comparisonId} {
-      allow read: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
       allow create: if isSignedIn() && incoming().userId == request.auth.uid;
       allow delete: if false;
     }

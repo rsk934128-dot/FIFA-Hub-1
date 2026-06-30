@@ -7,7 +7,8 @@ export interface NewsArticle {
   date: string;
   imageSeed: string;
   source: string;
-  engine?: "gemini" | "fallback";
+  engine?: "gemini" | "fallback" | "grounded";
+  sources?: { title: string; url: string }[];
 }
 
 export interface MatchStats {

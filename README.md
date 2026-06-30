@@ -27,6 +27,12 @@ The platform's UI is built on a **"Stadium-First"** aesthetic:
 ### ⚽ Intelligent Match Simulator
 - **Procedural Commentary**: Real-time event feeds powered by local high-fidelity engines and Gemini.
 - **Tactical Pitch Visualizer**: Live formations that update dynamically based on team strategies.
+- **Real-Time Notification System**: Integrated the browser's native **Notification API** to alert users with instant desktop/mobile push notifications whenever a goal is scored or a match concludes.
+- **Man of the Match Card**: A dynamic, FUT-style gold card generated at full-time calculating player ratings, key match stats (goals, shots on target, passes, tackles), and custom tactical MVP summaries based on simulation events.
+
+### 📱 Mobile Web App & PWA Branding
+- **Custom Launcher Icon**: A highly polished, golden minimalist football launcher logo that appears on your phone's home screen when installed.
+- **Standalone Mobile Experience**: Configured with a `manifest.json` and Apple mobile web app capability for a seamless full-screen app experience on iOS and Android devices, without standard browser UI bars.
 
 ## 🛠️ Technical Stack
 

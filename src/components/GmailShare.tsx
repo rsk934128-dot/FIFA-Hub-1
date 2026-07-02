@@ -30,8 +30,12 @@ export const GmailShare: React.FC<GmailShareProps> = ({
         setGmailAccess(result.accessToken);
         toast.success("Gmail Connected!");
       }
-    } catch (err) {
-      toast.error("Failed to connect Gmail");
+    } catch (err: any) {
+      if (err.code === 'auth/popup-blocked') {
+        toast.error("Connection popup blocked. Please allow popups and try again.");
+      } else {
+        toast.error("Failed to connect Gmail");
+      }
     }
   };
 

@@ -11,6 +11,69 @@
     <meta name="theme-color" content="#f59e0b" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script>
+      // Global error handler to suppress phantom MetaMask errors from browser extensions
+      (function() {
+        if (typeof window === 'undefined') return;
+        
+        // 1. Explicitly neutralize window.ethereum and web3 to stop libraries from attempting connection
+        try {
+          const block = {
+            get() { return undefined; },
+            set() { /* prevent external overrides */ },
+            configurable: false
+          };
+          Object.defineProperty(window, 'ethereum', block);
+          Object.defineProperty(window, 'web3', block);
+        } catch (e) {
+          window.ethereum = undefined;
+          window.web3 = undefined;
+        }
+
+        // 2. Intercept standard Error events
+        window.addEventListener('error', (event) => {
+          const msg = event.message?.toLowerCase() || '';
+          const err = event.error?.message?.toLowerCase() || '';
+          if (msg.includes('metamask') || err.includes('metamask') || msg.includes('ethereum')) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        // 3. Intercept Promise Rejections
+        window.addEventListener('unhandledrejection', (event) => {
+          const reason = event.reason?.message || String(event.reason);
+          const reasonLower = reason.toLowerCase();
+          if (reasonLower.includes('metamask') || reasonLower.includes('ethereum')) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+          }
+        }, true);
+
+        // 4. Override Console methods to filter out MetaMask noise and specific Auth noise
+        const filterMetaMask = (original) => {
+          return function(...args) {
+            const isMetaMask = args.some(arg => {
+              if (typeof arg === 'string') {
+                const lower = arg.toLowerCase();
+                return lower.includes('metamask') || lower.includes('ethereum') || lower.includes('failed to connect to metamask');
+              }
+              if (arg instanceof Error) {
+                const lower = arg.message.toLowerCase();
+                return lower.includes('metamask') || lower.includes('ethereum') || lower.includes('failed to connect to metamask');
+              }
+              return false;
+            });
+            if (!isMetaMask) {
+              original.apply(console, args);
+            }
+          };
+        };
+
+        console.error = filterMetaMask(console.error);
+        console.warn = filterMetaMask(console.warn);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

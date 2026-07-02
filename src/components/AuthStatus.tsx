@@ -3,6 +3,7 @@ import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { useFirebase } from './FirebaseProvider';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const AuthStatus: React.FC = () => {
   const { user, loading } = useFirebase();
@@ -11,8 +12,13 @@ export const AuthStatus: React.FC = () => {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login failed:", error);
+    } catch (error: any) {
+      if (error.code === 'auth/popup-blocked') {
+        toast.error("Login popup blocked. Please allow popups and try again.");
+      } else {
+        console.error("Login failed:", error);
+        toast.error("Login failed. Please try again.");
+      }
     }
   };
 

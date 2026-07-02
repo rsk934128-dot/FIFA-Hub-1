@@ -30,6 +30,12 @@ The platform's UI is built on a **"Stadium-First"** aesthetic:
 - **Real-Time Notification System**: Integrated the browser's native **Notification API** to alert users with instant desktop/mobile push notifications whenever a goal is scored or a match concludes.
 - **Man of the Match Card**: A dynamic, FUT-style gold card generated at full-time calculating player ratings, key match stats (goals, shots on target, passes, tackles), and custom tactical MVP summaries based on simulation events.
 
+### 💳 Secure Payment Gateways
+- **Stripe Checkout**: Integrated real-world payment processing for premium upgrades. Supports dynamic checkout sessions and config retrieval from the server.
+- **bKash & BohudurPay Portal**: Full end-to-end payment simulation for regional tournament passes and merchandise.
+- **Dynamic Credentials**: Interactive terminal for managing sandbox API keys and intent selection.
+- **Transaction History**: Real-time logging of payment events and verification states.
+
 ### 📱 Mobile Web App & PWA Branding
 - **Custom Launcher Icon**: A highly polished, golden minimalist football launcher logo that appears on your phone's home screen when installed.
 - **Standalone Mobile Experience**: Configured with a `manifest.json` and Apple mobile web app capability for a seamless full-screen app experience on iOS and Android devices, without standard browser UI bars.

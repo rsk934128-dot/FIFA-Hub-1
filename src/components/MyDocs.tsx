@@ -96,8 +96,12 @@ export const MyDocs: React.FC = () => {
         setGmailAccess(result.accessToken);
         toast.success("Drive Connected!");
       }
-    } catch (err) {
-      toast.error("Failed to connect Workspace");
+    } catch (err: any) {
+      if (err.code === 'auth/popup-blocked') {
+        toast.error("Connection popup blocked. Please allow popups and try again.");
+      } else {
+        toast.error("Failed to connect Workspace");
+      }
     }
   };
 

@@ -229,8 +229,12 @@ export const PerformanceAnalytics: React.FC = () => {
         setGmailAccess(result.accessToken);
         toast.success("Workspace Connected for Performance Analytics!");
       }
-    } catch (err) {
-      toast.error("Failed to connect Workspace");
+    } catch (err: any) {
+      if (err.code === 'auth/popup-blocked') {
+        toast.error("Connection popup blocked. Please allow popups and try again.");
+      } else {
+        toast.error("Failed to connect Workspace");
+      }
     }
   };
 

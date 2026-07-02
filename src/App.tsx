@@ -8,14 +8,16 @@ import TacticalAdvisor from "./components/TacticalAdvisor";
 import LiveTV from "./components/LiveTV";
 import NexusView from "./components/NexusView";
 import BKashGateway from "./components/BKashGateway";
+import { StripeCheckout } from "./components/StripeCheckout";
 import { AuthStatus } from "./components/AuthStatus";
 import { MyDocs } from "./components/MyDocs";
 import { PerformanceAnalytics } from "./components/PerformanceAnalytics";
-import { Trophy, Shield, Newspaper, Brain, Activity, Menu, X, Sparkles, Sun, Moon, Zap, MessageSquare, Tv, Volume2, VolumeX, Globe, HardDrive, TrendingUp, DollarSign } from "lucide-react";
+import { SupportChat } from "./components/SupportChat";
+import { Trophy, Shield, Newspaper, Brain, Activity, Menu, X, Sparkles, Sun, Moon, Zap, MessageSquare, Tv, Volume2, VolumeX, Globe, HardDrive, TrendingUp, DollarSign, Crown } from "lucide-react";
 import { Atmosphere } from "./types";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"sim" | "tournament" | "scout" | "advisor" | "news" | "quiz" | "live" | "nexus" | "analytics" | "archive" | "bkash">("sim");
+  const [activeTab, setActiveTab] = useState<"sim" | "tournament" | "scout" | "advisor" | "news" | "quiz" | "live" | "nexus" | "analytics" | "archive" | "bkash" | "premium">("sim");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [atmosphere, setAtmosphere] = useState<Atmosphere>("night");
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
@@ -39,7 +41,8 @@ export default function App() {
     { id: "quiz", label: "TRIVIA ARENA", icon: <Brain className="w-4 h-4" /> },
     { id: "analytics", label: "ANALYTICS DECK", icon: <TrendingUp className="w-4 h-4" /> },
     { id: "archive", label: "ARCHIVE", icon: <HardDrive className="w-4 h-4" /> },
-    { id: "bkash", label: "bKASH GATEWAY", icon: <DollarSign className="w-4 h-4" /> },
+    { id: "premium", label: "UPGRADE", icon: <Crown className="w-4 h-4" /> },
+    { id: "bkash", label: "bKASH GATE", icon: <DollarSign className="w-4 h-4" /> },
   ] as const;
 
   const renderActiveModule = () => {
@@ -55,6 +58,7 @@ export default function App() {
       case "analytics": return <PerformanceAnalytics />;
       case "archive": return <MyDocs />;
       case "bkash": return <BKashGateway />;
+      case "premium": return <StripeCheckout />;
       default: return <MatchSim />;
     }
   };
@@ -214,6 +218,7 @@ export default function App() {
           </p>
         </div>
       </footer>
+      <SupportChat />
     </div>
   );
 }

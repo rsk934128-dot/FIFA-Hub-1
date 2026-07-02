@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from "react";
-import { Tv, Play, Users, Signal, Globe, Zap, ExternalLink, ShieldCheck, Server, Radio, BarChart2, Activity, RefreshCw } from "lucide-react";
+import { Tv, Play, Users, Signal, Globe, Zap, ExternalLink, ShieldCheck, Server, Radio, BarChart2, Activity, RefreshCw, AlertCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { LiveChannel, CDNNode } from "../types";
 import StreamMetrics from "./StreamMetrics";
+import { NewsImage } from "./NewsImage";
 
 const CHANNELS: LiveChannel[] = [
   {
@@ -12,7 +13,7 @@ const CHANNELS: LiveChannel[] = [
     match: "SWITZERLAND vs CANADA",
     viewerCount: "1.2M",
     thumbnail: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?q=80&w=800&auto=format&fit=crop",
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-soccer-player-kicking-the-ball-in-the-stadium-91-large.mp4"
+    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
   },
   {
     id: "ch-2",
@@ -21,7 +22,7 @@ const CHANNELS: LiveChannel[] = [
     match: "BOSNIA vs QATAR",
     viewerCount: "850K",
     thumbnail: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?q=80&w=800&auto=format&fit=crop",
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-a-soccer-ball-entering-a-goal-at-night-42245-large.mp4"
+    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
   },
   {
     id: "ch-3",
@@ -30,7 +31,7 @@ const CHANNELS: LiveChannel[] = [
     match: "SCOTLAND vs BRAZIL",
     viewerCount: "2.4M",
     thumbnail: "https://images.unsplash.com/photo-1518091043644-c1d445eb9519?q=80&w=800&auto=format&fit=crop",
-    videoUrl: "https://assets.mixkit.co/videos/preview/mixkit-football-player-running-with-the-ball-on-the-field-42239-large.mp4"
+    videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
   },
   {
     id: "ch-4",
@@ -50,22 +51,26 @@ const CDN_NODES: CDNNode[] = [
 
 export default function LiveTV() {
   const [selectedChannel, setSelectedChannel] = useState<LiveChannel>(CHANNELS[0]);
-  const [streamState, setStreamState] = useState<"idle" | "initializing" | "handshaking" | "buffering" | "active">("idle");
+  const [streamState, setStreamState] = useState<"idle" | "initializing" | "handshaking" | "buffering" | "active" | "error">("idle");
   const [selectedCDN, setSelectedCDN] = useState<CDNNode>(CDN_NODES[0]);
 
   const handlePlay = () => {
     setStreamState("initializing");
     
-    // Complex state machine for realism
+    // Faster handshake for better UX
     setTimeout(() => {
       setStreamState("handshaking");
       setTimeout(() => {
         setStreamState("buffering");
         setTimeout(() => {
           setStreamState("active");
-        }, 1500);
-      }, 1000);
-    }, 1000);
+        }, 800);
+      }, 500);
+    }, 500);
+  };
+
+  const handleVideoError = () => {
+    setStreamState("error");
   };
 
   return (
@@ -136,13 +141,15 @@ export default function LiveTV() {
                     muted 
                     playsInline
                     className="w-full h-full object-cover"
+                    onError={handleVideoError}
                   />
                 ) : (
                   <div className="relative w-full h-full">
-                    <img 
+                    <NewsImage 
                       src={selectedChannel.thumbnail} 
                       alt="Broadcast"
                       className={`w-full h-full object-cover ${streamState === 'idle' ? 'opacity-60 grayscale-[0.3]' : 'opacity-20 blur-md'} transition-all duration-1000`}
+                      aspectRatio="aspect-auto"
                     />
                     {streamState !== 'idle' && (
                       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -204,6 +211,26 @@ export default function LiveTV() {
                           {streamState === "buffering" && "Optimizing Buffer"}
                         </span>
                         <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">Global Node: {selectedCDN.id}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {streamState === "error" && (
+                    <div className="flex flex-col items-center gap-6">
+                      <div className="w-20 h-20 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+                        <AlertCircle className="w-8 h-8 text-rose-500" />
+                      </div>
+                      <div className="bg-black/80 backdrop-blur-2xl px-8 py-6 rounded-[2rem] border border-white/10 flex flex-col items-center gap-4 shadow-2xl max-w-xs text-center">
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-mono text-rose-500 font-black uppercase tracking-[0.3em]">Uplink Failed</span>
+                          <p className="text-[10px] text-slate-400 font-medium">The broadcast feed is currently unavailable in your region.</p>
+                        </div>
+                        <button 
+                          onClick={handlePlay}
+                          className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white bg-rose-500/20 hover:bg-rose-500/30 px-4 py-2 rounded-xl border border-rose-500/30 transition-all cursor-pointer"
+                        >
+                          <RefreshCw className="w-3 h-3" /> Retry Connection
+                        </button>
                       </div>
                     </div>
                   )}
@@ -301,7 +328,12 @@ export default function LiveTV() {
                     }`}
                   >
                     <div className="w-20 h-14 rounded-2xl overflow-hidden bg-black flex-shrink-0 relative border border-white/5 shadow-lg">
-                      <img src={channel.thumbnail} alt="" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
+                      <NewsImage 
+                        src={channel.thumbnail} 
+                        alt="" 
+                        className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" 
+                        aspectRatio="aspect-auto"
+                      />
                       {channel.status === "LIVE" && (
                         <div className="absolute inset-0 flex items-center justify-center">
                           <div className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />

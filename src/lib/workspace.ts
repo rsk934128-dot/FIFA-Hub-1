@@ -24,8 +24,12 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
-  } catch (error) {
-    console.error('Workspace Auth Error:', error);
+  } catch (error: any) {
+    if (error.code === 'auth/popup-blocked') {
+      console.error('Workspace Auth Error: Popup was blocked by the browser. Please allow popups for this site and try again.');
+    } else {
+      console.error('Workspace Auth Error:', error);
+    }
     throw error;
   }
 };

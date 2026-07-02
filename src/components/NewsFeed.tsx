@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { NewsArticle, TickerItem } from "../types";
 import { Newspaper, Calendar, ArrowRight, RefreshCw, AlertCircle, Sparkles, Activity, Zap, Globe, ExternalLink } from "lucide-react";
+import { NewsImage } from "./NewsImage";
 
 export default function NewsFeed() {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
@@ -83,6 +84,7 @@ export default function NewsFeed() {
   }, [feedType]);
 
   const currentArticles = feedType === "editorial" ? articles : groundedArticles;
+
   const categories = ["All", ...Array.from(new Set(currentArticles.map((a) => a.category)))];
 
   const filteredArticles = selectedCategory === "All"
@@ -100,7 +102,23 @@ export default function NewsFeed() {
     }
   };
 
-  // Return a beautiful dynamic landscape background icon/card
+  // Return a beautiful dynamic landscape background image
+  const getArticleImage = (articleId: string, seed: string) => {
+    const images: Record<string, string> = {
+      stadium: "https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&q=80&w=1000",
+      football: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&q=80&w=1000",
+      jersey: "https://images.unsplash.com/photo-1522778119026-d647f0596c20?auto=format&fit=crop&q=80&w=1000",
+      boots: "https://images.unsplash.com/photo-1510566339491-1845b6bc7d51?auto=format&fit=crop&q=80&w=1000",
+      goalie: "https://images.unsplash.com/photo-1518091043644-c1d4457512c6?auto=format&fit=crop&q=80&w=1000",
+      pitch: "https://images.unsplash.com/photo-1556056504-5c7696c4c28d?auto=format&fit=crop&q=80&w=1000",
+      trophy: "https://images.unsplash.com/photo-1521733621454-e67c8052a325?auto=format&fit=crop&q=80&w=1000",
+      manager: "https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&q=80&w=1000",
+      crowd: "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&q=80&w=1000",
+    };
+    return images[seed.toLowerCase()] || "https://images.unsplash.com/photo-1551958219-acbc608c6377?auto=format&fit=crop&q=80&w=1000";
+  };
+
+  // Return a matching gradient overlay
   const getImagePlaceholder = (seed: string) => {
     const gradients: Record<string, string> = {
       stadium: "from-emerald-900/60 to-slate-950",
@@ -108,6 +126,10 @@ export default function NewsFeed() {
       jersey: "from-sky-900/60 to-slate-950",
       boots: "from-indigo-900/60 to-slate-950",
       goalie: "from-cyan-900/60 to-slate-950",
+      pitch: "from-green-900/60 to-slate-950",
+      trophy: "from-yellow-900/60 to-slate-950",
+      manager: "from-gray-900/60 to-slate-950",
+      crowd: "from-red-900/60 to-slate-950",
     };
     return gradients[seed.toLowerCase()] || "from-zinc-900 to-slate-950";
   };
@@ -249,34 +271,46 @@ export default function NewsFeed() {
         </div>
       ) : selectedArticle ? (
         /* Full Article Detail View */
-        <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden max-w-4xl mx-auto backdrop-blur-sm">
-          {/* Header Graphic */}
-          <div className={`h-48 md:h-64 bg-gradient-to-br ${getImagePlaceholder(selectedArticle.imageSeed)} p-6 flex flex-col justify-end border-b border-white/5 relative`}>
-            <div className="absolute top-4 right-4 bg-white/5 text-slate-400 text-[10px] font-mono uppercase px-2.5 py-1 rounded border border-white/10 flex items-center gap-1.5 font-bold">
-              {selectedArticle.engine === 'grounded' ? (
-                <>
-                  <Globe className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-                  Search Grounded
-                </>
-              ) : selectedArticle.engine === 'gemini' ? (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-                  Gemini Crafted
-                </>
-              ) : (
-                <>
-                  <Activity className="w-3.5 h-3.5 text-slate-500" />
-                  Archived Feed
-                </>
-              )}
-            </div>
-            <div className="space-y-2 max-w-2xl">
-              <span className="text-[10px] font-mono uppercase tracking-widest bg-amber-500/20 text-amber-300 py-1 px-2.5 rounded border border-amber-500/30 font-bold">
-                {selectedArticle.category}
-              </span>
-              <h1 className="text-xl md:text-3xl font-black text-white tracking-tight leading-tight uppercase italic">
-                {selectedArticle.title}
-              </h1>
+        <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden max-w-4xl mx-auto backdrop-blur-sm shadow-2xl">
+          {/* Header Graphic with Real Imagery */}
+          <div className="h-56 md:h-80 relative overflow-hidden group/header border-b border-white/5">
+            <NewsImage 
+              query={`${selectedArticle.title} ${selectedArticle.category}`}
+              src={getArticleImage(selectedArticle.id, selectedArticle.imageSeed)} 
+              alt={selectedArticle.title}
+              className="w-full h-full object-cover transition-transform duration-700 group-hover/header:scale-110"
+              aspectRatio="aspect-auto"
+            />
+            <div className={`absolute inset-0 bg-gradient-to-t ${getImagePlaceholder(selectedArticle.imageSeed)} opacity-80 mix-blend-multiply`} />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+            
+            <div className="absolute inset-0 p-6 md:p-8 flex flex-col justify-end">
+              <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md text-slate-300 text-[10px] font-mono uppercase px-2.5 py-1 rounded border border-white/10 flex items-center gap-1.5 font-bold">
+                {selectedArticle.engine === 'grounded' ? (
+                  <>
+                    <Globe className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                    Search Grounded
+                  </>
+                ) : selectedArticle.engine === 'gemini' ? (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                    Gemini Crafted
+                  </>
+                ) : (
+                  <>
+                    <Activity className="w-3.5 h-3.5 text-slate-500" />
+                    Archived Feed
+                  </>
+                )}
+              </div>
+              <div className="space-y-3 max-w-2xl">
+                <span className="text-[10px] font-mono uppercase tracking-widest bg-amber-500 text-black py-1 px-2.5 rounded font-black shadow-lg shadow-amber-500/20">
+                  {selectedArticle.category}
+                </span>
+                <h1 className="text-2xl md:text-4xl font-black text-white tracking-tighter leading-none uppercase italic drop-shadow-2xl">
+                  {selectedArticle.title}
+                </h1>
+              </div>
             </div>
           </div>
 
@@ -373,22 +407,34 @@ export default function NewsFeed() {
             {filteredArticles.map((article) => (
               <div
                 key={article.id}
-                className="group bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-amber-500/30 rounded-2xl overflow-hidden transition-all duration-300 flex flex-col justify-between backdrop-blur-sm"
+                className="group bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-amber-500/30 rounded-2xl overflow-hidden transition-all duration-500 flex flex-col justify-between backdrop-blur-sm shadow-xl"
               >
-                {/* Simulated Thumbnail */}
-                <div className={`h-28 bg-gradient-to-br ${getImagePlaceholder(article.imageSeed)} p-4 flex flex-col justify-between border-b border-white/5`}>
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-[10px] font-mono bg-black/80 text-amber-300 py-0.5 px-2 rounded border border-white/10 self-start font-bold uppercase tracking-wider">
-                      {article.category}
-                    </span>
-                    {article.engine === 'grounded' && (
-                      <span className="text-[8px] font-mono bg-emerald-500/20 text-emerald-400 py-0.5 px-1.5 rounded border border-emerald-500/30 font-bold uppercase tracking-wider flex items-center gap-1 animate-pulse">
-                        <span className="h-1 w-1 rounded-full bg-emerald-400" />
-                        Grounded
+                {/* Visual Thumbnail */}
+                <div className="h-32 relative overflow-hidden border-b border-white/5">
+                  <NewsImage 
+                    query={`${article.title} ${article.category}`}
+                    src={getArticleImage(article.id, article.imageSeed)} 
+                    alt={article.title}
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                    aspectRatio="aspect-auto"
+                  />
+                  <div className={`absolute inset-0 bg-gradient-to-t ${getImagePlaceholder(article.imageSeed)} opacity-60 mix-blend-multiply`} />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  
+                  <div className="absolute inset-0 p-4 flex flex-col justify-between">
+                    <div className="flex items-center justify-between w-full">
+                      <span className="text-[9px] font-black font-mono bg-amber-500 text-black py-0.5 px-2 rounded self-start uppercase tracking-wider shadow-lg">
+                        {article.category}
                       </span>
-                    )}
+                      {article.engine === 'grounded' && (
+                        <span className="text-[8px] font-mono bg-emerald-500 text-white py-0.5 px-1.5 rounded font-bold uppercase tracking-wider flex items-center gap-1 shadow-lg shadow-emerald-500/20">
+                          <span className="h-1 w-1 rounded-full bg-white animate-pulse" />
+                          Grounded
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-300 font-bold drop-shadow-md">{article.date}</span>
                   </div>
-                  <span className="text-[10px] font-mono text-slate-400">{article.date}</span>
                 </div>
 
                 {/* Article Info */}

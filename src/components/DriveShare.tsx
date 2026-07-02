@@ -30,8 +30,12 @@ export const DriveShare: React.FC<DriveShareProps> = ({
         setGmailAccess(result.accessToken);
         toast.success("Workspace Connected!");
       }
-    } catch (err) {
-      toast.error("Failed to connect Workspace");
+    } catch (err: any) {
+      if (err.code === 'auth/popup-blocked') {
+        toast.error("Connection popup blocked. Please allow popups and try again.");
+      } else {
+        toast.error("Failed to connect Workspace");
+      }
     }
   };
 

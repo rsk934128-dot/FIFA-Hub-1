@@ -4,8 +4,20 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { google } from "googleapis";
 import dotenv from "dotenv";
+import Stripe from "stripe";
 
 dotenv.config();
+
+// Lazy initialize Stripe for production readiness
+let stripe: Stripe | null = null;
+try {
+  if (process.env.STRIPE_SECRET_KEY) {
+    stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+    console.log("Stripe Engine initialized successfully.");
+  }
+} catch (e) {
+  console.error("Stripe initialization skipped: Missing or invalid key.");
+}
 
 // Helper to clean Gemini JSON responses (removes markdown backticks)
 function cleanJsonResponse(text: string | null | undefined) {
@@ -18,6 +30,41 @@ async function startServer() {
   const app = express();
   app.use(express.json());
   const PORT = 3000;
+
+  // Stripe Configuration Endpoint
+  app.get("/api/config", (req, res) => {
+    res.send({
+      publishableKey: process.env.VITE_STRIPE_PUBLISHABLE_KEY,
+    });
+  });
+
+  // Create Stripe Checkout Session
+  app.post("/api/create-checkout-session", async (req, res) => {
+    if (!stripe) {
+      return res.status(500).json({ error: "Stripe not initialized" });
+    }
+
+    const { priceId, successUrl, cancelUrl } = req.body;
+
+    try {
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price: priceId || 'price_default', 
+            quantity: 1,
+          },
+        ],
+        mode: 'payment',
+        success_url: successUrl || `${process.env.APP_URL || 'http://localhost:3000'}/?status=success`,
+        cancel_url: cancelUrl || `${process.env.APP_URL || 'http://localhost:3000'}/?status=cancel`,
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Stripe Session Error:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Initialize Gemini if key exists
   let ai: GoogleGenAI | null = null;
@@ -182,6 +229,39 @@ async function startServer() {
   let quizCache: { data: any, timestamp: number } | null = null;
   let groundedNewsCache: { data: any, timestamp: number } | null = null;
   const CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
+  const IMAGE_CACHE_DURATION = 1000 * 60 * 60 * 24; // 24 hours
+  const imageSearchCache: Record<string, { url: string, timestamp: number }> = {};
+
+  // --- API ROUTE: Unsplash Proxy ---
+  app.get("/api/unsplash-search", async (req, res) => {
+    const { query } = req.query;
+    const searchQuery = query ? String(query) : "football";
+    
+    if (imageSearchCache[searchQuery] && (Date.now() - imageSearchCache[searchQuery].timestamp < IMAGE_CACHE_DURATION)) {
+      return res.json({ url: imageSearchCache[searchQuery].url });
+    }
+
+    const accessKey = process.env.VITE_UNSPLASH_ACCESS_KEY;
+    if (!accessKey) {
+      return res.json({ url: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&q=80&w=1000" });
+    }
+
+    try {
+      const response = await fetch(`https://api.unsplash.com/search/photos?query=${encodeURIComponent(searchQuery + " football")}&per_page=1&orientation=landscape`, {
+        headers: {
+          Authorization: `Client-ID ${accessKey}`
+        }
+      });
+      const data = await response.json() as any;
+      const imageUrl = data.results?.[0]?.urls?.regular || "https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&q=80&w=1000";
+      
+      imageSearchCache[searchQuery] = { url: imageUrl, timestamp: Date.now() };
+      res.json({ url: imageUrl });
+    } catch (error) {
+      console.error("Unsplash API Error:", error);
+      res.json({ url: "https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&q=80&w=1000" });
+    }
+  });
 
   // --- API ROUTE: Get News ---
   app.get("/api/football-news", async (req, res) => {
@@ -202,7 +282,7 @@ async function startServer() {
             summary: { type: Type.STRING, description: "1-sentence summary" },
             content: { type: Type.STRING, description: "Full news article contents (2-3 paragraphs)" },
             date: { type: Type.STRING, description: "Formatted date like June 24, 2026" },
-            imageSeed: { type: Type.STRING, description: "One word like football, stadium, jersey, boots, goalie" },
+            imageSeed: { type: Type.STRING, description: "One word like football, stadium, jersey, boots, goalie, pitch, trophy, manager, crowd" },
             source: { type: Type.STRING, description: "Source name like FIFA Hub News, Global Football" }
           },
           required: ["id", "title", "category", "summary", "content", "date", "imageSeed", "source"]
@@ -281,7 +361,7 @@ async function startServer() {
 
     if (ai) {
       try {
-        const query = "Provide 5 of the absolute latest, real-world football (soccer) news and transfer updates from the last few days. For each article, write a highly descriptive and engaging real-world headline, set the category (Transfer, Match, Tournament, or Injury), a 1-sentence summary, a detailed 2-3 paragraph content writeup, the correct formatted current date in 2026, a suitable imageSeed (football, stadium, jersey, boots, goalie), and a real-world sports news publisher source (e.g., Sky Sports, BBC Sport, ESPN, Fabrizio Romano). Make sure they are real, actual current events grounded in search!";
+        const query = "Provide 5 of the absolute latest, real-world football (soccer) news and transfer updates from the last few days. For each article, write a highly descriptive and engaging real-world headline, set the category (Transfer, Match, Tournament, or Injury), a 1-sentence summary, a detailed 2-3 paragraph content writeup, the correct formatted current date in 2026, a suitable imageSeed (football, stadium, jersey, boots, goalie, pitch, trophy, manager, crowd), and a real-world sports news publisher source (e.g., Sky Sports, BBC Sport, ESPN, Fabrizio Romano). Make sure they are real, actual current events grounded in search!";
 
         const schema = {
           type: Type.ARRAY,
@@ -294,7 +374,7 @@ async function startServer() {
               summary: { type: Type.STRING, description: "1-sentence summary" },
               content: { type: Type.STRING, description: "Full detailed news writeup (2-3 paragraphs)" },
               date: { type: Type.STRING, description: "Today's date or very recent date in 2026" },
-              imageSeed: { type: Type.STRING, description: "One of: football, stadium, jersey, boots, goalie" },
+              imageSeed: { type: Type.STRING, description: "One of: football, stadium, jersey, boots, goalie, pitch, trophy, manager, crowd" },
               source: { type: Type.STRING, description: "Real source name (e.g. Sky Sports, BBC Sport)" }
             },
             required: ["id", "title", "category", "summary", "content", "date", "imageSeed", "source"]

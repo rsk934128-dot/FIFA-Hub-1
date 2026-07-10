@@ -5,8 +5,27 @@ import { GoogleGenAI, Type, HarmCategory, HarmBlockThreshold } from "@google/gen
 import { google } from "googleapis";
 import dotenv from "dotenv";
 import Stripe from "stripe";
+import { initializeApp, cert, getApps } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
+import { getFirestore } from "firebase-admin/firestore";
 
 dotenv.config();
+
+// Initialize Firebase Admin if Service Account is provided
+try {
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    initializeApp({
+      credential: cert(serviceAccount),
+      databaseURL: `https://${serviceAccount.project_id}.firebaseio.com`
+    });
+    console.log("Firebase Admin initialized successfully.");
+  } else {
+    console.warn("FIREBASE_SERVICE_ACCOUNT not found. Notification sending will be mocked.");
+  }
+} catch (e) {
+  console.error("Firebase Admin initialization failed:", e);
+}
 
 // Lazy initialize Stripe for production readiness
 let stripe: Stripe | null = null;
@@ -62,6 +81,40 @@ async function startServer() {
       res.json({ url: session.url });
     } catch (error: any) {
       console.error("Stripe Session Error:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- API ROUTE: Send Match Notification ---
+  app.post("/api/notifications/match-event", async (req, res) => {
+    const { userId, title, body, data } = req.body;
+    
+    // Check if user has any tokens
+    if (getApps().length === 0) {
+      console.log("[Mock FCM] Sending to", userId, ":", title, "-", body);
+      return res.json({ success: true, mock: true });
+    }
+
+    try {
+      // Get the user's tokens from Firestore
+      const dbAdmin = getFirestore();
+      const tokensSnapshot = await dbAdmin.collection('users').doc(userId).collection('fcm_tokens').get();
+      const tokens = tokensSnapshot.docs.map(doc => doc.data().token);
+
+      if (tokens.length === 0) {
+        return res.json({ success: false, error: "No tokens found for user" });
+      }
+
+      const message = {
+        notification: { title, body },
+        data: data || {},
+        tokens: tokens
+      };
+
+      const response = await getMessaging().sendEachForMulticast(message);
+      res.json({ success: true, response });
+    } catch (error: any) {
+      console.error("FCM Send Error:", error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -789,6 +842,66 @@ Ensure the lineup layout perfectly reflects their actual formation (e.g. 4-3-3, 
       ]
     };
     res.json({ ...genericReport, engine: "fallback" as const });
+  });
+
+  // --- API ROUTE: Generate Player Card ---
+  app.post("/api/generate-player-card", async (req, res) => {
+    const { player, teamContext } = req.body;
+    if (!player) {
+      return res.status(400).json({ error: "Player data is required" });
+    }
+
+    if (ai) {
+      try {
+        const prompt = `Generate a professional digital player trading card for a football player.
+        Player Name: ${player.name}
+        Team: ${teamContext || 'Unknown'}
+        Position: ${player.position}
+        Squad Number: ${player.number || 'N/A'}
+        Tactical Role: ${player.role}
+        
+        Style Guidelines:
+        - High-quality cinematic photorealistic headshot of a professional athlete.
+        - The card should have a sleek tech-inspired background with glowing blue and amber accents.
+        - Incorporate the player's name and position as elegant typography on the card.
+        - Add a stats panel with numeric ratings for: Speed, Skill, Passing, Defense, and Physicality.
+        - Futuristic "Tactical Scouting" aesthetic with holographic overlays and light trails.
+        - Centered composition, premium trading card layout.`;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite-image',
+          contents: {
+            parts: [{ text: prompt }],
+          },
+          config: {
+            imageConfig: {
+              aspectRatio: "3:4",
+              imageSize: "1K"
+            }
+          }
+        });
+
+        let imageUrl = null;
+        if (response.candidates?.[0]?.content?.parts) {
+          for (const part of response.candidates[0].content.parts) {
+            if (part.inlineData) {
+              imageUrl = `data:image/png;base64,${part.inlineData.data}`;
+              break;
+            }
+          }
+        }
+
+        if (imageUrl) {
+          return res.json({ imageUrl });
+        }
+      } catch (error: any) {
+        console.error("Image Generation Error:", error.message);
+      }
+    }
+
+    // Fallback if AI fails or is not available
+    const fallbackImage = `https://picsum.photos/seed/${encodeURIComponent(player.name)}/300/400`;
+    res.json({ imageUrl: fallbackImage, note: "AI generation unavailable, using tactical simulation placeholder." });
   });
 
   // --- API ROUTE: Simulate Match ---

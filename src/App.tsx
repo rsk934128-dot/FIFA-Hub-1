@@ -13,7 +13,10 @@ import { AuthStatus } from "./components/AuthStatus";
 import { MyDocs } from "./components/MyDocs";
 import { PerformanceAnalytics } from "./components/PerformanceAnalytics";
 import { SupportChat } from "./components/SupportChat";
-import { Trophy, Shield, Newspaper, Brain, Activity, Menu, X, Sparkles, Sun, Moon, Zap, MessageSquare, Tv, Volume2, VolumeX, Globe, HardDrive, TrendingUp, DollarSign, Crown } from "lucide-react";
+import { LiveScoresMarquee } from "./components/LiveScoresMarquee";
+import { QuickActions } from "./components/QuickActions";
+import { SubscriptionStore } from "./components/SubscriptionStore";
+import { Trophy, Shield, Newspaper, Brain, Activity, Menu, X, Sparkles, Sun, Moon, Zap, MessageSquare, Tv, Volume2, VolumeX, Globe, HardDrive, TrendingUp, DollarSign, Crown, ShoppingCart } from "lucide-react";
 import { Atmosphere } from "./types";
 
 export default function App() {
@@ -21,6 +24,11 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [atmosphere, setAtmosphere] = useState<Atmosphere>("night");
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
+  const [syncMode, setSyncMode] = useState<'live' | 'offline'>('live');
+
+  const toggleSyncMode = () => {
+    setSyncMode(prev => prev === 'live' ? 'offline' : 'live');
+  };
 
   const atmospheres = [
     { id: "night", label: "NIGHT", icon: <Moon className="w-3.5 h-3.5" />, bg: "bg-[#050811]", text: "text-zinc-100", glow: "bg-amber-500/[0.04]" },
@@ -41,7 +49,7 @@ export default function App() {
     { id: "quiz", label: "TRIVIA ARENA", icon: <Brain className="w-4 h-4" /> },
     { id: "analytics", label: "ANALYTICS DECK", icon: <TrendingUp className="w-4 h-4" /> },
     { id: "archive", label: "ARCHIVE", icon: <HardDrive className="w-4 h-4" /> },
-    { id: "premium", label: "UPGRADE", icon: <Crown className="w-4 h-4" /> },
+    { id: "premium", label: "NEXUS STORE", icon: <ShoppingCart className="w-4 h-4" /> },
     { id: "bkash", label: "bKASH GATE", icon: <DollarSign className="w-4 h-4" /> },
   ] as const;
 
@@ -50,7 +58,7 @@ export default function App() {
       case "sim": return <MatchSim soundEnabled={soundEnabled} />;
       case "live": return <LiveTV />;
       case "tournament": return <TournamentCenter />;
-      case "scout": return <ScoutingTerminal />;
+      case "scout": return <ScoutingTerminal syncMode={syncMode} />;
       case "advisor": return <TacticalAdvisor />;
       case "news": return <NewsFeed />;
       case "quiz": return <TriviaQuiz />;
@@ -58,7 +66,7 @@ export default function App() {
       case "analytics": return <PerformanceAnalytics />;
       case "archive": return <MyDocs />;
       case "bkash": return <BKashGateway />;
-      case "premium": return <StripeCheckout />;
+      case "premium": return <SubscriptionStore />;
       default: return <MatchSim />;
     }
   };
@@ -155,6 +163,8 @@ export default function App() {
         </div>
       </header>
 
+      <LiveScoresMarquee />
+
       {/* Mobile Menu drawer */}
       {isMobileMenuOpen && (
         <div className="md:hidden sticky top-20 z-30 bg-[#050811] border-b border-white/10 p-4 space-y-2 animate-slide-down shadow-xl">
@@ -211,14 +221,40 @@ export default function App() {
 
       {/* Universal footer */}
       <footer className="border-t border-white/10 bg-black/50 py-8 text-center text-[10px] font-mono text-slate-500 relative z-10">
-        <div className="max-w-7xl mx-auto px-4 space-y-1">
-          <p>© {new Date().getFullYear()} FIFA Hub. Inspired by top live broadcasts.</p>
-          <p className="flex items-center justify-center gap-1">
-            Formulations structured securely by <strong className="text-slate-400">Gemini Intelligence</strong> systems.
-          </p>
+        <div className="max-w-7xl mx-auto px-4 flex flex-col items-center gap-6">
+          
+          {/* Sync Status Toggle */}
+          <div className="flex items-center gap-4 border border-white/5 bg-white/[0.02] px-4 py-2 rounded-2xl shadow-inner">
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full ${syncMode === 'live' ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} />
+              <span className="font-black uppercase tracking-widest text-[9px]">Status: {syncMode === 'live' ? 'Synchronized' : 'Offline Mode'}</span>
+            </div>
+            
+            <div className="w-[1px] h-4 bg-white/10" />
+
+            <button 
+              onClick={toggleSyncMode}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl transition-all duration-300 font-black uppercase tracking-tighter text-[9px] cursor-pointer border ${
+                syncMode === 'live' 
+                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' 
+                  : 'bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-500/20'
+              }`}
+            >
+              {syncMode === 'live' ? <Activity className="w-3 h-3" /> : <HardDrive className="w-3 h-3" />}
+              {syncMode === 'live' ? 'Switch to Offline' : 'Go Live'}
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            <p>© {new Date().getFullYear()} FIFA Hub. Inspired by top live broadcasts.</p>
+            <p className="flex items-center justify-center gap-1">
+              Formulations structured securely by <strong className="text-slate-400">Gemini Intelligence</strong> systems.
+            </p>
+          </div>
         </div>
       </footer>
       <SupportChat />
+      <QuickActions onNavigate={setActiveTab} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { SimulationResult, MatchEvent } from "../types";
-import { Play, RotateCcw, Award, Clock, Activity, Sliders, AlertCircle, Sparkles, ChevronRight, Star, User, Zap, Globe, ShieldCheck, Gauge, Wifi, RefreshCw, History, BellRing } from "lucide-react";
+import { Play, RotateCcw, Award, Clock, Activity, Sliders, AlertCircle, Sparkles, ChevronRight, Star, User, Zap, Globe, ShieldCheck, Gauge, Wifi, RefreshCw, History, BellRing, X } from "lucide-react";
 import { audioManager } from "../lib/audio";
 import { motion, AnimatePresence } from "motion/react";
 import MVPPredictor from "./MVPPredictor";
@@ -45,8 +45,53 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
   const [possessionSide, setPossessionSide] = useState<'A' | 'B' | 'none'>('none');
   const [isFinished, setIsFinished] = useState<boolean>(false);
   const [crowdIntensity, setCrowdIntensity] = useState<number>(30); // 0-100
+  const [trackedTeams, setTrackedTeams] = useState<string[]>([]);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load tracked teams
+  useEffect(() => {
+    const saved = localStorage.getItem("fifa_hub_tracked_teams");
+    if (saved) {
+      try {
+        setTrackedTeams(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to parse tracked teams", e);
+      }
+    }
+  }, []);
+
+  // Save tracked teams
+  const toggleTrackedTeam = (teamName: string) => {
+    setTrackedTeams(prev => {
+      const next = prev.includes(teamName) 
+        ? prev.filter(t => t !== teamName) 
+        : [...prev, teamName];
+      localStorage.setItem("fifa_hub_tracked_teams", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const triggerMatchNotification = async (title: string, body: string, data?: any) => {
+    if (!user) return;
+    try {
+      await fetch("/api/notifications/match-event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.uid,
+          title,
+          body,
+          data: {
+            ...data,
+            click_action: window.location.origin
+          }
+        })
+      });
+    } catch (err) {
+      console.error("Failed to trigger FCM notification:", err);
+    }
+  };
 
   // Browser Notification State
   const [notificationPermission, setNotificationPermission] = useState<string>("default");
@@ -194,16 +239,26 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
                 setCrowdIntensity(100);
                 setTimeout(() => setCrowdIntensity(60), 4000);
 
-                // Live browser notification for Goal
-                if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-                  try {
-                    const scoringTeam = ev.team === 'A' ? teamA : teamB;
-                    new Notification(`⚽ GOAL! ${scoringTeam} Scores!`, {
-                      body: `${ev.minute}': ${ev.description}`,
-                      icon: "/logo.jpg"
-                    });
-                  } catch (err) {
-                    console.error("Browser notification failed:", err);
+                // Live notifications for Goal (Only for tracked teams)
+                const scoringTeam = ev.team === 'A' ? teamA : teamB;
+                if (trackedTeams.includes(scoringTeam)) {
+                  // Trigger FCM (background)
+                  triggerMatchNotification(
+                    `⚽ GOAL! ${scoringTeam} Scores!`,
+                    `${ev.minute}': ${ev.description}`,
+                    { matchId: simResult.id, type: 'goal' }
+                  );
+
+                  // Local fallback (foreground browser)
+                  if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+                    try {
+                      new Notification(`⚽ GOAL! ${scoringTeam} Scores!`, {
+                        body: `${ev.minute}': ${ev.description}`,
+                        icon: "/logo.jpg"
+                      });
+                    } catch (err) {
+                      console.error("Browser notification failed:", err);
+                    }
                   }
                 }
               } else if (ev.type === 'chance') {
@@ -230,17 +285,25 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
             setCrowdIntensity(15);
             if (timerRef.current) clearInterval(timerRef.current);
 
-            // Live browser notification for Match Finished
+            // Live notifications for Match Finished
+            const finalScoreA = simResult.scoreA;
+            const finalScoreB = simResult.scoreB;
+            const winnerText = finalScoreA > finalScoreB 
+              ? `${teamA} wins!` 
+              : finalScoreB > finalScoreA 
+                ? `${teamB} wins!` 
+                : "The match ended in a draw!";
+            
+            // Trigger FCM (background)
+            triggerMatchNotification(
+              `🏁 MATCH FINISHED: ${teamA} vs ${teamB}`,
+              `Final Score: ${teamA} ${finalScoreA} - ${finalScoreB} ${teamB}. ${winnerText}`,
+              { matchId: simResult.id, type: 'fulltime' }
+            );
+
+            // Local fallback (foreground browser)
             if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
               try {
-                const finalScoreA = simResult.scoreA;
-                const finalScoreB = simResult.scoreB;
-                const winnerText = finalScoreA > finalScoreB 
-                  ? `${teamA} wins!` 
-                  : finalScoreB > finalScoreA 
-                    ? `${teamB} wins!` 
-                    : "The match ended in a draw!";
-
                 new Notification(`🏁 MATCH FINISHED: ${teamA} vs ${teamB}`, {
                   body: `Final Score: ${teamA} ${finalScoreA} - ${finalScoreB} ${teamB}. ${winnerText}`,
                   icon: "/logo.jpg"
@@ -396,7 +459,20 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
 
           <div className="grid grid-cols-1 md:grid-cols-11 items-center gap-6 relative">
             <div className="md:col-span-5 space-y-2.5">
-              <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block font-black">NODE A (HOME)</label>
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block font-black">NODE A (HOME)</label>
+                <button 
+                  onClick={() => toggleTrackedTeam(teamA)}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[9px] font-mono font-black uppercase tracking-tighter transition-all cursor-pointer border ${
+                    trackedTeams.includes(teamA) 
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.3)]' 
+                      : 'bg-white/5 text-slate-500 border-white/5 hover:bg-white/10'
+                  }`}
+                >
+                  <Star className={`w-3 h-3 ${trackedTeams.includes(teamA) ? 'fill-black' : ''}`} />
+                  {trackedTeams.includes(teamA) ? 'Tracked' : 'Track Team'}
+                </button>
+              </div>
               <select
                 value={teamA}
                 onChange={(e) => setTeamA(e.target.value)}
@@ -413,7 +489,20 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
             <div className="md:col-span-1 text-center font-black text-xl text-amber-500 italic">VS</div>
 
             <div className="md:col-span-5 space-y-2.5">
-              <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block font-black">NODE B (AWAY)</label>
+              <div className="flex justify-between items-center">
+                <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block font-black">NODE B (AWAY)</label>
+                <button 
+                  onClick={() => toggleTrackedTeam(teamB)}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[9px] font-mono font-black uppercase tracking-tighter transition-all cursor-pointer border ${
+                    trackedTeams.includes(teamB) 
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.3)]' 
+                      : 'bg-white/5 text-slate-500 border-white/5 hover:bg-white/10'
+                  }`}
+                >
+                  <Star className={`w-3 h-3 ${trackedTeams.includes(teamB) ? 'fill-black' : ''}`} />
+                  {trackedTeams.includes(teamB) ? 'Tracked' : 'Track Team'}
+                </button>
+              </div>
               <select
                 value={teamB}
                 onChange={(e) => setTeamB(e.target.value)}
@@ -428,7 +517,26 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
             </div>
           </div>
 
-          <div className="pt-6 border-t border-white/5 flex justify-center">
+          <div className="pt-6 border-t border-white/5 flex flex-col items-center gap-6">
+            {trackedTeams.length > 0 && (
+              <div className="w-full">
+                <p className="text-[9px] font-mono text-slate-500 uppercase tracking-[0.2em] font-black mb-3 text-center">Active Team Watchlist</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {trackedTeams.map(team => (
+                    <div key={team} className="bg-white/5 border border-white/10 rounded-full px-3 py-1.5 flex items-center gap-2 group">
+                      <span className="text-[10px] font-black text-white italic uppercase tracking-tight">{team}</span>
+                      <button 
+                        onClick={() => toggleTrackedTeam(team)}
+                        className="text-slate-500 hover:text-rose-500 transition-all cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button
               onClick={handleKickoff}
               className="bg-white hover:bg-amber-400 text-black font-black py-4 px-10 rounded-2xl text-xs font-sans uppercase tracking-tight transition-all duration-300 shadow-xl shadow-white/5 cursor-pointer flex items-center gap-3 italic"

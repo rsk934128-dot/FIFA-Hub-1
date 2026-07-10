@@ -10,12 +10,15 @@ import {
   Filter,
   FileCode,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Tv,
+  Sparkles
 } from 'lucide-react';
 import { useWorkspace } from './WorkspaceProvider';
 import { googleSignIn } from '../lib/workspace';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import { VeoHighlights } from './VeoHighlights';
 
 interface DriveFile {
   id: string;
@@ -32,6 +35,7 @@ export const MyDocs: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'reports' | 'highlights'>('reports');
 
   const fetchFiles = useCallback(async (searchTerm = '') => {
     if (!accessToken) return;
@@ -127,115 +131,153 @@ export const MyDocs: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header Controls */}
-      <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white/[0.02] border border-white/10 p-4 rounded-2xl">
-        <div className="relative w-full md:w-96">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input 
-            type="text"
-            placeholder="SEARCH ARCHIVES..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              // Debounced search could be added here
-            }}
-            onKeyDown={(e) => e.key === 'Enter' && fetchFiles(search)}
-            className="w-full bg-black/40 border border-white/5 rounded-xl py-3 pl-12 pr-4 text-xs font-mono text-white placeholder:text-slate-600 focus:border-blue-500/50 outline-none transition-all uppercase tracking-widest"
-          />
-        </div>
-        
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <button 
-            onClick={() => fetchFiles(search)}
-            disabled={loading}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white/5 border border-white/10 rounded-xl font-mono text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
+    <div className="space-y-8">
+      {/* View Toggle */}
+      <div className="flex justify-center">
+        <div className="inline-flex bg-white/5 border border-white/10 p-1.5 rounded-2xl backdrop-blur-xl">
+          <button
+            onClick={() => setActiveTab('reports')}
+            className={`flex items-center gap-3 px-6 py-2.5 rounded-xl text-xs font-mono font-bold uppercase tracking-widest transition-all cursor-pointer ${
+              activeTab === 'reports'
+                ? "bg-amber-500 text-black shadow-lg shadow-amber-500/20"
+                : "text-slate-500 hover:text-white"
+            }`}
           >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            Sync
+            <HardDrive className="w-4 h-4" />
+            Tactical Reports
           </button>
-          
-          <div className="hidden md:flex items-center gap-2 px-4 py-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-            <HardDrive className="w-3.5 h-3.5 text-blue-500" />
-            <span className="text-[10px] font-mono font-black text-blue-500 uppercase tracking-widest">Workspace Online</span>
-          </div>
+          <button
+            onClick={() => setActiveTab('highlights')}
+            className={`flex items-center gap-3 px-6 py-2.5 rounded-xl text-xs font-mono font-bold uppercase tracking-widest transition-all cursor-pointer ${
+              activeTab === 'highlights'
+                ? "bg-amber-500 text-black shadow-lg shadow-amber-500/20"
+                : "text-slate-500 hover:text-white"
+            }`}
+          >
+            <Tv className="w-4 h-4" />
+            Match Highlights
+            <span className="flex items-center gap-1 px-1.5 py-0.5 bg-black/40 rounded text-[8px] border border-white/10 ml-1">
+              <Sparkles className="w-2.5 h-2.5 text-amber-500" />
+              AI
+            </span>
+          </button>
         </div>
       </div>
 
-      {/* Grid Layout */}
-      {loading && files.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20">
-          <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-4" />
-          <span className="font-mono text-[10px] text-slate-500 uppercase tracking-[0.3em]">Accessing Tactical Vault...</span>
-        </div>
-      ) : files.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-white/5 rounded-3xl opacity-50">
-          <AlertCircle className="w-8 h-8 text-slate-700 mb-4" />
-          <span className="font-mono text-[10px] text-slate-600 uppercase tracking-[0.3em]">No Records Found</span>
-        </div>
+      {activeTab === 'highlights' ? (
+        <VeoHighlights />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <AnimatePresence mode="popLayout">
-            {files.map((file) => (
-              <motion.div
-                key={file.id}
-                layout
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                className="group relative bg-white/[0.03] border border-white/5 rounded-2xl p-5 hover:border-blue-500/30 hover:bg-white/[0.05] transition-all"
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* Header Controls */}
+          <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white/[0.02] border border-white/10 p-4 rounded-2xl">
+            <div className="relative w-full md:w-96">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <input 
+                type="text"
+                placeholder="SEARCH ARCHIVES..."
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  // Debounced search could be added here
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && fetchFiles(search)}
+                className="w-full bg-black/40 border border-white/5 rounded-xl py-3 pl-12 pr-4 text-xs font-mono text-white placeholder:text-slate-600 focus:border-blue-500/50 outline-none transition-all uppercase tracking-widest"
+              />
+            </div>
+            
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <button 
+                onClick={() => fetchFiles(search)}
+                disabled={loading}
+                className="flex-1 md:flex-none flex items-center justify-center gap-2 px-6 py-3 bg-white/5 border border-white/10 rounded-xl font-mono text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white hover:bg-white/10 transition-all disabled:opacity-50"
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
-                    {file.mimeType.includes('html') ? (
-                      <FileCode className="w-5 h-5 text-blue-500" />
-                    ) : (
-                      <FileText className="w-5 h-5 text-blue-500" />
-                    )}
-                  </div>
-                  <div className="flex gap-1">
-                    <button 
-                      onClick={() => handleDelete(file.id)}
-                      disabled={isDeleting === file.id}
-                      className="p-2 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all disabled:opacity-50"
-                    >
-                      {isDeleting === file.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                    </button>
-                    <a 
-                      href={file.webViewLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 text-slate-600 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  </div>
-                </div>
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                Sync
+              </button>
+              
+              <div className="hidden md:flex items-center gap-2 px-4 py-3 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+                <HardDrive className="w-3.5 h-3.5 text-blue-500" />
+                <span className="text-[10px] font-mono font-black text-blue-500 uppercase tracking-widest">Workspace Online</span>
+              </div>
+            </div>
+          </div>
 
-                <h3 className="font-mono text-xs font-black text-white uppercase tracking-wider mb-2 truncate group-hover:text-blue-400 transition-colors">
-                  {file.name}
-                </h3>
+          {/* Grid Layout */}
+          {loading && files.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 text-blue-500 animate-spin mb-4" />
+              <span className="font-mono text-[10px] text-slate-500 uppercase tracking-[0.3em]">Accessing Tactical Vault...</span>
+            </div>
+          ) : files.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 border border-dashed border-white/5 rounded-3xl opacity-50">
+              <AlertCircle className="w-8 h-8 text-slate-700 mb-4" />
+              <span className="font-mono text-[10px] text-slate-600 uppercase tracking-[0.3em]">No Records Found</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <AnimatePresence mode="popLayout">
+                {files.map((file) => (
+                  <motion.div
+                    key={file.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    className="group relative bg-white/[0.03] border border-white/5 rounded-2xl p-5 hover:border-blue-500/30 hover:bg-white/[0.05] transition-all"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                        {file.mimeType.includes('html') ? (
+                          <FileCode className="w-5 h-5 text-blue-500" />
+                        ) : (
+                          <FileText className="w-5 h-5 text-blue-500" />
+                        )}
+                      </div>
+                      <div className="flex gap-1">
+                        <button 
+                          onClick={() => handleDelete(file.id)}
+                          disabled={isDeleting === file.id}
+                          className="p-2 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all disabled:opacity-50"
+                        >
+                          {isDeleting === file.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                        <a 
+                          href={file.webViewLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 text-slate-600 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-all"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                        </a>
+                      </div>
+                    </div>
 
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-1.5 text-slate-500">
-                    <Calendar className="w-3 h-3" />
-                    <span className="text-[9px] font-mono uppercase tracking-widest">
-                      {new Date(file.createdTime).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-slate-500">
-                    <Filter className="w-3 h-3" />
-                    <span className="text-[9px] font-mono uppercase tracking-widest truncate max-w-[80px]">
-                      {file.mimeType.split('/').pop()?.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* Decorative Elements */}
-                <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
-              </motion.div>
-            ))}
-          </AnimatePresence>
+                    <h3 className="font-mono text-xs font-black text-white uppercase tracking-wider mb-2 truncate group-hover:text-blue-400 transition-colors">
+                      {file.name}
+                    </h3>
+
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-1.5 text-slate-500">
+                        <Calendar className="w-3 h-3" />
+                        <span className="text-[9px] font-mono uppercase tracking-widest">
+                          {new Date(file.createdTime).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-slate-500">
+                        <Filter className="w-3 h-3" />
+                        <span className="text-[9px] font-mono uppercase tracking-widest truncate max-w-[80px]">
+                          {file.mimeType.split('/').pop()?.toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    {/* Decorative Elements */}
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
       )}
     </div>

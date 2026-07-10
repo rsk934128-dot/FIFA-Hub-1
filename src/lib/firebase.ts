@@ -2,12 +2,14 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import { getAnalytics, isSupported } from 'firebase/analytics';
+import { getMessaging } from 'firebase/messaging';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Analytics conditionally (it doesn't work in all environments)
+// Initialize Analytics and Messaging conditionally
 export const analytics = typeof window !== 'undefined' ? isSupported().then(yes => yes ? getAnalytics(app) : null) : null;
+export const messaging = typeof window !== 'undefined' ? getMessaging(app) : null;
 
 const DATABASE_ID = 'ai-studio-236bf4ef-42bb-41e0-94ca-3f4c8db500db';
 export const db = getFirestore(app, DATABASE_ID);

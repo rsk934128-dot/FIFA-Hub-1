@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { ScoutingReport, PlayerComparison } from "../types";
-import { Shield, Sparkles, RefreshCw, AlertCircle, Search, Star, Layers, Activity, Users, ArrowLeftRight, Flame, Share2, History, Plus, HardDrive, FileText, Loader2, ExternalLink } from "lucide-react";
+import { Shield, Sparkles, RefreshCw, AlertCircle, Search, Star, Layers, Activity, Users, ArrowLeftRight, Flame, Share2, History, Plus, HardDrive, FileText, Loader2, ExternalLink, X } from "lucide-react";
 import NetworkFlow from "./NetworkFlow";
 import { GmailShare } from "./GmailShare";
 import { DriveShare } from "./DriveShare";
 import { PlayerRadarChart } from "./PlayerRadarChart";
 import { Toaster, toast } from 'sonner';
-import { collection, addDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, doc, updateDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useFirebase } from "./FirebaseProvider";
 import { handleFirestoreError, OperationType } from "../lib/firebaseUtils";
@@ -18,9 +18,13 @@ const SUGGESTED_COUNTRIES = [
   "Argentina", "Brazil", "France", "England", "Spain", "Germany", "Japan", "Bangladesh", "Morocco"
 ];
 
-export default function ScoutingTerminal() {
+interface ScoutingTerminalProps {
+  syncMode?: 'live' | 'offline';
+}
+
+export default function ScoutingTerminal({ syncMode = 'live' }: ScoutingTerminalProps) {
   const { user } = useFirebase();
-  const [view, setView] = useState<"scout" | "compare">("scout");
+  const [view, setView] = useState<"scout" | "compare" | "watchlist">("scout");
 
   // Save Player Report to Drive State
   const [isSavingPlayer, setIsSavingPlayer] = useState<"txt" | "pdf" | null>(null);
@@ -36,9 +40,20 @@ export default function ScoutingTerminal() {
   const [selectedPlayer, setSelectedPlayer] = useState<any>(null);
   const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
 
+  // Watchlist State
+  const [watchlists, setWatchlists] = useState<any[]>([]);
+  const [isCreatingWatchlist, setIsCreatingWatchlist] = useState<boolean>(false);
+  const [newWatchlistName, setNewWatchlistName] = useState<string>("");
+  const [showWatchlistSelector, setShowWatchlistSelector] = useState<boolean>(false);
+
+  // Image Generation State
+  const [isGeneratingCard, setIsGeneratingCard] = useState<boolean>(false);
+  const [generatedCardUrl, setGeneratedCardUrl] = useState<string | null>(null);
+
   // Clear dynamic file links when player selection changes
   useEffect(() => {
     setPlayerFileLinks({});
+    setGeneratedCardUrl(null);
   }, [selectedPlayer]);
 
   // Comparison State
@@ -48,6 +63,110 @@ export default function ScoutingTerminal() {
   const [compareLoading, setCompareLoading] = useState<boolean>(false);
   const [compareError, setCompareError] = useState<string | null>(null);
   const [comparisonHistory, setComparisonHistory] = useState<any[]>([]);
+  const [isSyncingHistory, setIsSyncingHistory] = useState(false);
+
+  // Fetch Watchlists
+  useEffect(() => {
+    if (!user) {
+      setWatchlists([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'watchlists'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setWatchlists(docs);
+    }, (error) => {
+      console.error("Watchlist listen error:", error);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const handleCreateWatchlist = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!user || !newWatchlistName.trim()) return;
+    setIsCreatingWatchlist(true);
+    try {
+      await addDoc(collection(db, 'watchlists'), {
+        name: newWatchlistName,
+        userId: user.uid,
+        players: [],
+        createdAt: serverTimestamp()
+      });
+      setNewWatchlistName("");
+      toast.success("Watchlist created!");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, 'watchlists');
+      toast.error("Failed to create watchlist");
+    } finally {
+      setIsCreatingWatchlist(false);
+    }
+  };
+
+  const handleAddToWatchlist = async (watchlistId: string, player: any) => {
+    if (!user) {
+      toast.error("Please sign in to save players");
+      return;
+    }
+    try {
+      const watchlistRef = doc(db, 'watchlists', watchlistId);
+      const watchlistSnap = await getDoc(watchlistRef);
+      if (watchlistSnap.exists()) {
+        const data = watchlistSnap.data();
+        const players = data.players || [];
+        if (players.some((p: any) => p.name === player.name)) {
+          toast.error("Player already in watchlist");
+          return;
+        }
+        await updateDoc(watchlistRef, {
+          players: [...players, { 
+            ...player, 
+            addedAt: new Date().toISOString(),
+            trend: Math.floor(Math.random() * 15) - 5 // Random trend indicator
+          }]
+        });
+        toast.success(`Added ${player.name} to ${data.name}`);
+        setShowWatchlistSelector(false);
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `watchlists/${watchlistId}`);
+      toast.error("Failed to add player to watchlist");
+    }
+  };
+
+  const handleRemoveFromWatchlist = async (watchlistId: string, playerName: string) => {
+    if (!user) return;
+    try {
+      const watchlistRef = doc(db, 'watchlists', watchlistId);
+      const watchlistSnap = await getDoc(watchlistRef);
+      if (watchlistSnap.exists()) {
+        const data = watchlistSnap.data();
+        const players = data.players || [];
+        await updateDoc(watchlistRef, {
+          players: players.filter((p: any) => p.name !== playerName)
+        });
+        toast.success("Player removed from watchlist");
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, `watchlists/${watchlistId}`);
+      toast.error("Failed to remove player");
+    }
+  };
+
+  const handleDeleteWatchlist = async (watchlistId: string) => {
+    if (!user) return;
+    if (!confirm("Are you sure you want to delete this watchlist?")) return;
+    try {
+      await deleteDoc(doc(db, 'watchlists', watchlistId));
+      toast.success("Watchlist deleted");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `watchlists/${watchlistId}`);
+      toast.error("Failed to delete watchlist");
+    }
+  };
 
   const fetchReport = async (countryName: string) => {
     try {
@@ -55,6 +174,23 @@ export default function ScoutingTerminal() {
       setError(null);
       setSelectedPlayer(null);
       setShowHeatmap(false);
+
+      // Cache Handling
+      const cacheKey = `scout_report_${countryName.toLowerCase()}`;
+      const cachedData = localStorage.getItem(cacheKey);
+
+      if (syncMode === 'offline') {
+        if (cachedData) {
+          setReport(JSON.parse(cachedData));
+          setActiveCountry(countryName);
+          toast.success("Loaded from offline cache");
+          setLoading(false);
+          return;
+        } else {
+          throw new Error("No offline data found for this country.");
+        }
+      }
+
       const response = await fetch("/api/scout-team", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -64,10 +200,18 @@ export default function ScoutingTerminal() {
         throw new Error("Scouting failed.");
       }
       const data = await response.json();
+      
+      // Save to cache
+      localStorage.setItem(cacheKey, JSON.stringify(data));
+      
       setReport(data);
       setActiveCountry(countryName);
     } catch (err: any) {
-      setError("Scouting data for this country is temporarily unavailable.");
+      if (syncMode === 'offline') {
+        setError(err.message || "Offline data unavailable.");
+      } else {
+        setError("Scouting data for this country is temporarily unavailable.");
+      }
       console.error(err);
     } finally {
       setLoading(false);
@@ -329,6 +473,31 @@ Powered by Gemini AI Scouting Intelligence
     }
   };
 
+  const handleGeneratePlayerCard = async () => {
+    if (!selectedPlayer) return;
+    setIsGeneratingCard(true);
+    setGeneratedCardUrl(null);
+    try {
+      const response = await fetch("/api/generate-player-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          player: selectedPlayer,
+          teamContext: report?.country 
+        })
+      });
+      if (!response.ok) throw new Error("Card generation failed");
+      const data = await response.json();
+      setGeneratedCardUrl(data.imageUrl);
+      toast.success("Digital Profile Generated!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to generate digital profile");
+    } finally {
+      setIsGeneratingCard(false);
+    }
+  };
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
@@ -363,6 +532,17 @@ Powered by Gemini AI Scouting Intelligence
           >
             <Users className="w-4 h-4" />
             Player Comparison
+          </button>
+          <button
+            onClick={() => setView("watchlist")}
+            className={`flex items-center gap-2 px-6 py-2 rounded-full text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              view === "watchlist"
+                ? "bg-amber-500 text-black shadow-lg shadow-amber-500/20"
+                : "text-slate-400 hover:text-white"
+            }`}
+          >
+            <Star className="w-4 h-4" />
+            Player Watchlist
           </button>
         </div>
       </div>
@@ -783,6 +963,79 @@ Powered by Gemini AI Scouting Intelligence
                               </div>
                             )}
                           </div>
+
+                          {/* Digital Profile Section */}
+                          <div className="mt-4 pt-3 border-t border-white/5 flex flex-col gap-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-black flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                                AI Digital Profile
+                              </span>
+                              <button
+                                onClick={handleGeneratePlayerCard}
+                                disabled={isGeneratingCard}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded-xl font-mono text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                {isGeneratingCard ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                )}
+                                {isGeneratingCard ? "Generating..." : "Generate Card"}
+                              </button>
+                            </div>
+                            
+                            {/* Watchlist Section */}
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setShowWatchlistSelector(!showWatchlistSelector)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded-xl font-mono text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                              >
+                                <Star className="w-3.5 h-3.5" />
+                                Save to Watchlist
+                              </button>
+                            </div>
+
+                            {showWatchlistSelector && (
+                              <div className="p-2 bg-black/40 border border-white/10 rounded-xl animate-in fade-in slide-in-from-top-1">
+                                <p className="text-[8px] font-mono text-slate-500 uppercase tracking-widest mb-2 font-bold">Select Watchlist</p>
+                                <div className="space-y-1 max-h-[100px] overflow-y-auto custom-scrollbar">
+                                  {watchlists.length === 0 ? (
+                                    <p className="text-[9px] text-slate-500 italic">No watchlists found. Create one in the Watchlist tab.</p>
+                                  ) : (
+                                    watchlists.map(wl => (
+                                      <button
+                                        key={wl.id}
+                                        onClick={() => handleAddToWatchlist(wl.id, selectedPlayer)}
+                                        className="w-full text-left px-2 py-1.5 hover:bg-white/5 rounded text-[10px] text-slate-300 font-medium transition-colors"
+                                      >
+                                        {wl.name}
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {generatedCardUrl && (
+                              <div className="relative group animate-in fade-in zoom-in duration-500 max-w-[200px] mx-auto">
+                                <img 
+                                  src={generatedCardUrl} 
+                                  alt={`${selectedPlayer.name} Profile Card`}
+                                  className="w-full rounded-xl border border-white/10 shadow-2xl"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-end justify-center p-4">
+                                   <button 
+                                     onClick={() => window.open(generatedCardUrl, '_blank')}
+                                     className="text-[10px] font-mono font-bold text-white bg-amber-500 px-3 py-1 rounded-full shadow-lg"
+                                   >
+                                     VIEW FULL SIZE
+                                   </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ) : (
                         <div className="text-center text-[10px] font-mono text-slate-500 py-2 uppercase font-bold tracking-wider">
@@ -869,6 +1122,17 @@ Powered by Gemini AI Scouting Intelligence
                               >
                                 <Plus className="w-3.5 h-3.5" />
                               </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedPlayer(player);
+                                  setShowWatchlistSelector(true);
+                                }}
+                                className="p-1.5 rounded-lg bg-white/5 border border-white/5 text-slate-500 hover:text-amber-400 hover:bg-amber-400/10 transition-all"
+                                title="Add to watchlist"
+                              >
+                                <Star className="w-3.5 h-3.5" />
+                              </button>
                               <span className="text-[10px] font-mono bg-white/5 text-amber-400 font-bold py-1 px-2.5 rounded-lg border border-white/5">
                                 {player.position}
                               </span>
@@ -897,7 +1161,7 @@ Powered by Gemini AI Scouting Intelligence
             )}
           </div>
         </div>
-      ) : (
+      ) : view === "compare" ? (
         /* PLAYER COMPARISON VIEW */
         <div className="space-y-6">
           {/* Input Area */}
@@ -1118,6 +1382,128 @@ Powered by Gemini AI Scouting Intelligence
               <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed uppercase font-mono font-bold tracking-tight">
                 Provide two names and Gemini will generate a cross-referenced breakdown of their profiles.
               </p>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* PLAYER WATCHLIST VIEW */
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white/5 border border-white/10 p-6 rounded-3xl backdrop-blur-md shadow-xl">
+            <div>
+              <h2 className="text-xl font-black text-white uppercase italic tracking-tighter flex items-center gap-3">
+                <Star className="w-6 h-6 text-amber-500" />
+                Player Watchlists
+              </h2>
+              <p className="text-slate-400 text-[10px] font-mono uppercase tracking-widest mt-1">
+                Persisted scouting targets and performance monitoring
+              </p>
+            </div>
+            
+            <form onSubmit={handleCreateWatchlist} className="flex gap-2">
+              <input 
+                type="text" 
+                value={newWatchlistName}
+                onChange={(e) => setNewWatchlistName(e.target.value)}
+                placeholder="New Watchlist Name..."
+                className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-amber-500/50 transition-all font-mono min-w-[200px]"
+              />
+              <button
+                type="submit"
+                disabled={isCreatingWatchlist || !newWatchlistName.trim()}
+                className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-black px-4 py-2 rounded-xl text-[10px] font-black uppercase italic transition-all cursor-pointer flex items-center gap-2 whitespace-nowrap"
+              >
+                {isCreatingWatchlist ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Create List
+              </button>
+            </form>
+          </div>
+
+          {watchlists.length === 0 ? (
+            <div className="bg-white/5 border border-white/10 p-24 rounded-3xl text-center backdrop-blur-md">
+              <Star className="w-16 h-16 text-slate-800 mx-auto mb-6" />
+              <p className="text-slate-500 font-mono text-xs uppercase tracking-widest font-black">Your watchlist repository is empty</p>
+              <p className="text-slate-600 text-[10px] mt-2 max-w-xs mx-auto italic">
+                Add players from the Scouting Deck to begin tracking performance trends and tactical output across sessions.
+              </p>
+              <button 
+                onClick={() => setView("scout")}
+                className="mt-8 px-6 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-slate-300 text-[10px] font-black uppercase tracking-widest transition-all"
+              >
+                Go to Scouting Deck
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {watchlists.map((wl) => (
+                <div key={wl.id} className="bg-white/5 border border-white/10 rounded-3xl p-6 backdrop-blur-md shadow-xl flex flex-col group transition-all hover:border-amber-500/20 relative overflow-hidden">
+                  <div className="absolute -top-4 -right-4 w-24 h-24 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-500/10 transition-all" />
+                  
+                  <div className="flex justify-between items-start mb-6 relative z-10">
+                    <div>
+                      <h3 className="text-sm font-black text-white uppercase italic tracking-wider flex items-center gap-2">
+                        {wl.name}
+                      </h3>
+                      <span className="text-[9px] font-mono text-slate-500 uppercase tracking-widest font-bold">
+                        {wl.players?.length || 0} TRACKED PROFILES
+                      </span>
+                    </div>
+                    <button 
+                      onClick={() => handleDeleteWatchlist(wl.id)}
+                      className="p-1.5 rounded-lg text-slate-600 hover:text-rose-500 hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  <div className="flex-1 space-y-3 relative z-10">
+                    {(!wl.players || wl.players.length === 0) ? (
+                      <div className="py-12 text-center text-slate-600 italic text-[10px] bg-black/20 rounded-2xl border border-white/5">
+                        No players tracked in this list
+                      </div>
+                    ) : (
+                      wl.players.map((p: any, i: number) => (
+                        <div key={i} className="bg-black/30 border border-white/5 p-4 rounded-2xl flex justify-between items-center group/item hover:border-amber-500/30 transition-all shadow-inner">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-zinc-100">{p.name}</span>
+                              <span className={`text-[9px] font-mono font-black flex items-center gap-0.5 px-1.5 py-0.5 rounded ${p.trend >= 0 ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'}`}>
+                                {p.trend >= 0 ? '▲' : '▼'} {Math.abs(p.trend)}%
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[9px] text-amber-500/80 font-mono uppercase tracking-widest font-black px-1.5 py-0.5 bg-amber-500/5 border border-amber-500/10 rounded">
+                                {p.position}
+                              </span>
+                              <span className="text-[9px] text-slate-500 font-mono tracking-tighter">
+                                ROLE: <span className="text-slate-300 font-black">{p.role}</span>
+                              </span>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => handleRemoveFromWatchlist(wl.id, p.name)}
+                            className="p-2 text-slate-700 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-all opacity-0 group-hover/item:opacity-100"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between relative z-10">
+                    <span className="text-[9px] font-mono text-slate-600 uppercase tracking-widest flex items-center gap-1.5">
+                      <History className="w-3 h-3" />
+                      {wl.createdAt?.toDate ? wl.createdAt.toDate().toLocaleDateString() : 'ACTIVE'}
+                    </span>
+                    <button 
+                      onClick={() => setView("scout")}
+                      className="text-[10px] font-mono font-black text-amber-500 hover:text-amber-400 uppercase tracking-widest flex items-center gap-1 group-hover:gap-2 transition-all"
+                    >
+                      SCOUT PLAYERS <RefreshCw className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

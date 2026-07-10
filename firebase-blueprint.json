@@ -115,9 +115,41 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "score"]
+    },
+    "PlayerWatchlist": {
+      "title": "Player Watchlist",
+      "description": "User's custom list of tracked players",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "players": { "type": "array" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "players", "userId"]
+    },
+    "FCMToken": {
+      "title": "FCM Token",
+      "description": "Firebase Cloud Messaging registration token for a device",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string" },
+        "platform": { "type": "string" },
+        "lastUpdated": { "type": "string", "format": "date-time" },
+        "favoriteTeams": { "type": "array" }
+      },
+      "required": ["token", "lastUpdated"]
     }
   },
   "firestore": {
+    "/users/{userId}/fcm_tokens/{tokenId}": {
+      "schema": "FCMToken",
+      "description": "Device-specific FCM registration tokens"
+    },
+    "/watchlists/{watchlistId}": {
+      "schema": "PlayerWatchlist",
+      "description": "User defined player watchlists"
+    },
     "/high_scores/{scoreId}": {
       "schema": "HighScore",
       "description": "Trivia leaderboards"

@@ -59,6 +59,19 @@ service cloud.firestore {
              data.content is string && data.content.size() <= 10000;
     }
 
+    function isValidWatchlist(data) {
+      return data.keys().hasAll(['name', 'players', 'userId']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.players is list &&
+             data.userId == request.auth.uid;
+    }
+
+    function isValidFCMToken(data) {
+      return data.keys().hasAll(['token', 'lastUpdated']) &&
+             data.token is string && data.token.size() <= 1000 &&
+             data.lastUpdated is string;
+    }
+
     // 4. Collection Rules
     match /scouting_reports/{reportId} {
       allow read: if isSignedIn();
@@ -103,12 +116,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /watchlists/{watchlistId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid && isValidWatchlist(incoming());
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && incoming().userId == request.auth.uid && isValidWatchlist(incoming());
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId);
       allow list: if false; // No listing users
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) && 
                     incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings']);
+
+      match /fcm_tokens/{tokenId} {
+        allow read, write: if isOwner(userId) && isValidId(tokenId) && (request.method == 'delete' || isValidFCMToken(incoming()));
+      }
     }
   }
 }

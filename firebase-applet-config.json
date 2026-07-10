@@ -1,10 +1,10 @@
 {
+  "projectId": "project-c5fed922-e24c-4280-862",
+  "appId": "1:394844522843:web:73aa7d249b3488a204727e",
   "apiKey": "AIzaSyDSqlBGYOqgKjMf5ObnvkCE4mSxGqokfl0",
   "authDomain": "project-c5fed922-e24c-4280-862.firebaseapp.com",
-  "databaseURL": "https://project-c5fed922-e24c-4280-862-default-rtdb.firebaseio.com",
-  "projectId": "project-c5fed922-e24c-4280-862",
+  "firestoreDatabaseId": "ai-studio-fifahub-236bf4ef-42bb-41e0-94ca-3f4c8db500db",
   "storageBucket": "project-c5fed922-e24c-4280-862.firebasestorage.app",
   "messagingSenderId": "394844522843",
-  "appId": "1:394844522843:web:73aa7d249b3488a204727e",
   "measurementId": "G-PWKSVSKFEV"
 }

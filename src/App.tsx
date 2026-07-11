@@ -12,6 +12,7 @@ import { StripeCheckout } from "./components/StripeCheckout";
 import { AuthStatus } from "./components/AuthStatus";
 import { MyDocs } from "./components/MyDocs";
 import { PerformanceAnalytics } from "./components/PerformanceAnalytics";
+import { ProjectRoadmap } from "./components/ProjectRoadmap";
 import { SupportChat } from "./components/SupportChat";
 import { LiveScoresMarquee } from "./components/LiveScoresMarquee";
 import { QuickActions } from "./components/QuickActions";
@@ -23,7 +24,7 @@ import { useFirebase } from "./components/FirebaseProvider";
 
 export default function App() {
   const { user } = useFirebase();
-  const [activeTab, setActiveTab] = useState<"sim" | "tournament" | "scout" | "advisor" | "news" | "quiz" | "live" | "nexus" | "analytics" | "archive" | "bkash" | "premium" | "wallet">("sim");
+  const [activeTab, setActiveTab] = useState<"sim" | "tournament" | "scout" | "advisor" | "news" | "quiz" | "live" | "nexus" | "analytics" | "archive" | "bkash" | "premium" | "wallet" | "roadmap">("sim");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [atmosphere, setAtmosphere] = useState<Atmosphere>("night");
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
@@ -48,6 +49,7 @@ export default function App() {
     { id: "scout", label: "SCOUTING DECK", icon: <Shield className="w-4 h-4" /> },
     { id: "advisor", label: "TACTICAL ADVISOR", icon: <MessageSquare className="w-4 h-4" /> },
     { id: "news", label: "NEWS ROOM", icon: <Newspaper className="w-4 h-4" /> },
+    { id: "roadmap", label: "ROADMAP", icon: <TrendingUp className="w-4 h-4" /> },
     { id: "nexus", label: "NEXUS", icon: <Globe className="w-4 h-4" /> },
     { id: "quiz", label: "TRIVIA ARENA", icon: <Brain className="w-4 h-4" /> },
     { id: "analytics", label: "ANALYTICS DECK", icon: <TrendingUp className="w-4 h-4" /> },
@@ -65,6 +67,7 @@ export default function App() {
       case "scout": return <ScoutingTerminal syncMode={syncMode} />;
       case "advisor": return <TacticalAdvisor />;
       case "news": return <NewsFeed />;
+      case "roadmap": return <ProjectRoadmap />;
       case "quiz": return <TriviaQuiz />;
       case "nexus": return <NexusView />;
       case "analytics": return <PerformanceAnalytics />;

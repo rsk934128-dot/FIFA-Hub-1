@@ -142,9 +142,27 @@
         "favoriteTeams": { "type": "array" }
       },
       "required": ["token", "lastUpdated", "platform"]
+    },
+    "Milestone": {
+      "title": "Project Milestone",
+      "description": "A progress milestone for the project roadmap",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["todo", "in-progress", "completed"] },
+        "progress": { "type": "number" },
+        "dueDate": { "type": "string", "format": "date-time" },
+        "order": { "type": "number" }
+      },
+      "required": ["title", "status", "progress", "order"]
     }
   },
   "firestore": {
+    "/roadmap/{milestoneId}": {
+      "schema": "Milestone",
+      "description": "Project roadmap milestones"
+    },
     "/users/{userId}/fcm_tokens/{tokenId}": {
       "schema": "FCMToken",
       "description": "Device-specific FCM registration tokens"

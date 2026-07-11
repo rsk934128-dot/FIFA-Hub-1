@@ -180,3 +180,13 @@ export interface TonWallet {
   createdAt: string;
   history?: TonTransaction[];
 }
+
+export interface Milestone {
+  id: string;
+  title: string;
+  description?: string;
+  status: 'todo' | 'in-progress' | 'completed';
+  progress: number;
+  dueDate?: string;
+  order: number;
+}

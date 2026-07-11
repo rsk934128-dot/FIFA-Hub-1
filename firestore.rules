@@ -74,6 +74,14 @@ service cloud.firestore {
              data.platform in ['web', 'ios', 'android'];
     }
 
+    function isValidMilestone(data) {
+      return data.keys().hasAll(['title', 'status', 'progress', 'order']) &&
+             data.title is string && data.title.size() <= 200 &&
+             data.status in ['todo', 'in-progress', 'completed'] &&
+             data.progress is number && data.progress >= 0 && data.progress <= 100 &&
+             data.order is number;
+    }
+
     // 4. Collection Rules
     match /scouting_reports/{reportId} {
       allow read: if isSignedIn();
@@ -116,6 +124,11 @@ service cloud.firestore {
     match /news/{newsId} {
       allow read: if true;
       allow write: if false;
+    }
+
+    match /roadmap/{milestoneId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidId(milestoneId) && isValidMilestone(incoming());
     }
 
     match /watchlists/{watchlistId} {

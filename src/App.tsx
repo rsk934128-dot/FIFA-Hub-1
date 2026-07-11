@@ -16,11 +16,14 @@ import { SupportChat } from "./components/SupportChat";
 import { LiveScoresMarquee } from "./components/LiveScoresMarquee";
 import { QuickActions } from "./components/QuickActions";
 import { SubscriptionStore } from "./components/SubscriptionStore";
-import { Trophy, Shield, Newspaper, Brain, Activity, Menu, X, Sparkles, Sun, Moon, Zap, MessageSquare, Tv, Volume2, VolumeX, Globe, HardDrive, TrendingUp, DollarSign, Crown, ShoppingCart } from "lucide-react";
+import { WalletManager } from "./components/WalletManager";
+import { Trophy, Shield, Newspaper, Brain, Activity, Menu, X, Sparkles, Sun, Moon, Zap, MessageSquare, Tv, Volume2, VolumeX, Globe, HardDrive, TrendingUp, DollarSign, Crown, ShoppingCart, Wallet } from "lucide-react";
 import { Atmosphere } from "./types";
+import { useFirebase } from "./components/FirebaseProvider";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<"sim" | "tournament" | "scout" | "advisor" | "news" | "quiz" | "live" | "nexus" | "analytics" | "archive" | "bkash" | "premium">("sim");
+  const { user } = useFirebase();
+  const [activeTab, setActiveTab] = useState<"sim" | "tournament" | "scout" | "advisor" | "news" | "quiz" | "live" | "nexus" | "analytics" | "archive" | "bkash" | "premium" | "wallet">("sim");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [atmosphere, setAtmosphere] = useState<Atmosphere>("night");
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
@@ -51,6 +54,7 @@ export default function App() {
     { id: "archive", label: "ARCHIVE", icon: <HardDrive className="w-4 h-4" /> },
     { id: "premium", label: "NEXUS STORE", icon: <ShoppingCart className="w-4 h-4" /> },
     { id: "bkash", label: "bKASH GATE", icon: <DollarSign className="w-4 h-4" /> },
+    { id: "wallet", label: "TON WALLET", icon: <Wallet className="w-4 h-4" /> },
   ] as const;
 
   const renderActiveModule = () => {
@@ -67,6 +71,20 @@ export default function App() {
       case "archive": return <MyDocs />;
       case "bkash": return <BKashGateway />;
       case "premium": return <SubscriptionStore />;
+      case "wallet": return (
+        <div className="max-w-2xl mx-auto py-12">
+          {user ? (
+            <WalletManager userId={user.uid} />
+          ) : (
+            <div className="text-center p-12 bg-white/5 rounded-2xl border border-white/10 backdrop-blur-md">
+              <Wallet className="w-12 h-12 text-slate-500 mx-auto mb-4" />
+              <h2 className="text-xl font-bold mb-2">Wallet Access Restricted</h2>
+              <p className="text-slate-400 mb-6">Please login with Google to access your custodial TON wallet.</p>
+              <AuthStatus />
+            </div>
+          )}
+        </div>
+      );
       default: return <MatchSim />;
     }
   };

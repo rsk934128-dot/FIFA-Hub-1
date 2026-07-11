@@ -8,8 +8,13 @@ import Stripe from "stripe";
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { getFirestore } from "firebase-admin/firestore";
+import firebaseConfig from "./firebase-applet-config.json" assert { type: "json" };
+import { createTonWallet } from "./src/lib/ton.js";
+import { tonService } from "./src/services/ton.service.js";
 
 dotenv.config();
+
+const DATABASE_ID = firebaseConfig.firestoreDatabaseId || '(default)';
 
 // Initialize Firebase Admin if Service Account is provided
 try {
@@ -84,6 +89,59 @@ async function startServer() {
       res.status(500).json({ error: error.message });
     }
   });
+  
+  // --- API ROUTE: Telegram Payments API: Create Invoice Link ---
+  app.post("/api/payments/telegram/create-invoice", async (req, res) => {
+    const { userId, planId, amount, currency = "USD" } = req.body;
+    
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    const providerToken = process.env.TELEGRAM_STRIPE_TOKEN; // Stripe Test Provider Token from BotFather
+    
+    if (!botToken || botToken === "MY_BOT_TOKEN") {
+      // Mock invoice link for development
+      console.warn("TELEGRAM_BOT_TOKEN missing. Providing mock invoice link.");
+      return res.json({ 
+        url: "https://t.me/invoice/mock_link_" + Math.random().toString(36).substring(7),
+        mock: true 
+      });
+    }
+
+    try {
+      // Telegram createInvoiceLink API
+      // For Stars (XTR), provider_token should be empty
+      const isStars = currency === "XTR";
+      
+      const payload = JSON.stringify({ userId, planId, timestamp: Date.now() });
+      
+      const response = await fetch(`https://api.telegram.org/bot${botToken}/createInvoiceLink`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `FIFA Hub: ${planId.toUpperCase()} Access`,
+          description: `Unlock Elite Tactical Insights and Scouting Deck for ${planId}`,
+          payload: payload,
+          provider_token: isStars ? "" : (providerToken || ""),
+          currency: currency,
+          prices: [{ label: "Access Fee", amount: amount }], // Amount is in smallest units (cents for USD, whole for Stars)
+          need_name: true,
+          need_email: true,
+          send_email_to_provider: true,
+          is_flexible: false
+        })
+      });
+      
+      const data = await response.json() as any;
+      if (data.ok) {
+        res.json({ url: data.result });
+      } else {
+        console.error("Telegram API Error:", data);
+        res.status(500).json({ error: data.description || "Failed to create invoice link" });
+      }
+    } catch (error: any) {
+      console.error("Telegram Invoice Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // --- API ROUTE: Send Match Notification ---
   app.post("/api/notifications/match-event", async (req, res) => {
@@ -97,7 +155,7 @@ async function startServer() {
 
     try {
       // Get the user's tokens from Firestore
-      const dbAdmin = getFirestore();
+      const dbAdmin = getFirestore(DATABASE_ID);
       const tokensSnapshot = await dbAdmin.collection('users').doc(userId).collection('fcm_tokens').get();
       const tokens = tokensSnapshot.docs.map(doc => doc.data().token);
 
@@ -115,6 +173,90 @@ async function startServer() {
       res.json({ success: true, response });
     } catch (error: any) {
       console.error("FCM Send Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- API ROUTE: Generate TON Wallet ---
+  app.post("/api/wallet/generate", async (req, res) => {
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
+    try {
+      const dbAdmin = getFirestore(DATABASE_ID);
+      const userRef = dbAdmin.collection('users').doc(userId);
+      
+      const userDoc = await userRef.get();
+      if (userDoc.exists && userDoc.data()?.wallet) {
+        return res.json({ wallet: userDoc.data()?.wallet, existing: true });
+      }
+
+      const walletData = await createTonWallet();
+      
+      const wallet = {
+        address: walletData.address,
+        publicKey: walletData.publicKey,
+        version: walletData.version,
+        createdAt: new Date().toISOString(),
+        mnemonic: walletData.mnemonic 
+      };
+
+      await userRef.set({ wallet }, { merge: true });
+
+      res.json({ wallet, existing: false });
+    } catch (error: any) {
+      console.error("Wallet Generation Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- API ROUTE: Get TON Balance ---
+  app.post("/api/wallet/balance", async (req, res) => {
+    const { address } = req.body;
+    if (!address) return res.status(400).json({ error: "address is required" });
+
+    try {
+      const balance = await tonService.getBalance(address);
+      res.json({ balance });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- API ROUTE: Transfer TON ---
+  app.post("/api/wallet/transfer", async (req, res) => {
+    const { userId, toAddress, amount } = req.body;
+    if (!userId || !toAddress || !amount) {
+      return res.status(400).json({ error: "userId, toAddress, and amount are required" });
+    }
+
+    try {
+      const dbAdmin = getFirestore(DATABASE_ID);
+      const userRef = dbAdmin.collection('users').doc(userId);
+      const userDoc = await userRef.get();
+      
+      const wallet = userDoc.data()?.wallet;
+      if (!wallet || !wallet.mnemonic) {
+        return res.status(404).json({ error: "Wallet not found for this user" });
+      }
+
+      const result = await tonService.sendTransfer(wallet.mnemonic, toAddress, amount);
+      res.json({ success: true, message: `Transfer of ${amount} TON initiated. Seqno: ${result}` });
+    } catch (error: any) {
+      console.error("Transfer Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // --- API ROUTE: Get TON History ---
+  app.post("/api/wallet/history", async (req, res) => {
+    const { address } = req.body;
+    if (!address) return res.status(400).json({ error: "address is required" });
+
+    try {
+      const history = await tonService.fetchWalletHistory(address);
+      res.json({ history });
+    } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });

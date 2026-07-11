@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
   Zap, 
   Shield, 
@@ -14,14 +14,22 @@ import {
   FileSearch,
   Mic,
   Cpu,
-  ArrowUpRight
+  ArrowUpRight,
+  Loader2
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useFirebase } from './FirebaseProvider';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { toast } from 'sonner';
 
 interface PlanProps {
+  id: string;
   title: string;
   subtitle: string;
   price?: string;
+  amount?: number; // In cents or stars
+  currency?: string;
   period?: string;
   features: string[];
   models?: string[];
@@ -29,19 +37,26 @@ interface PlanProps {
   isBundle?: boolean;
   icon: any;
   accentColor: string;
+  onSelect: (id: string, amount: number, currency: string) => void;
+  isLoading?: boolean;
 }
 
 const PlanCard: React.FC<PlanProps> = ({ 
+  id,
   title, 
   subtitle, 
   price, 
+  amount,
+  currency = "USD",
   period, 
   features, 
   models, 
   isPremium, 
   isBundle, 
   icon: Icon,
-  accentColor 
+  accentColor,
+  onSelect,
+  isLoading
 }) => {
   return (
     <motion.div
@@ -104,19 +119,103 @@ const PlanCard: React.FC<PlanProps> = ({
         </div>
       </div>
 
-      <button className={`mt-8 w-full py-4 rounded-2xl text-[10px] font-black uppercase italic tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2 ${
-        isPremium 
-          ? `bg-${accentColor} text-black hover:opacity-90 shadow-lg shadow-${accentColor}/20` 
-          : 'bg-white/5 text-white hover:bg-white/10 border border-white/10'
-      }`}>
-        {isBundle ? 'Select Bundle' : 'Initialize Plan'}
-        <ArrowUpRight className="w-4 h-4" />
+      <button 
+        onClick={() => onSelect(id, amount || 0, currency)}
+        disabled={isLoading || !amount}
+        className={`mt-8 w-full py-4 rounded-2xl text-[10px] font-black uppercase italic tracking-widest transition-all cursor-pointer flex items-center justify-center gap-2 ${
+          isPremium 
+            ? `bg-${accentColor} text-black hover:opacity-90 shadow-lg shadow-${accentColor}/20` 
+            : 'bg-white/5 text-white hover:bg-white/10 border border-white/10'
+        } disabled:opacity-50 disabled:cursor-not-allowed`}
+      >
+        {isLoading ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <>
+            {isBundle ? 'Select Bundle' : 'Initialize Plan'}
+            <ArrowUpRight className="w-4 h-4" />
+          </>
+        )}
       </button>
     </motion.div>
   );
 };
 
 export const SubscriptionStore: React.FC = () => {
+  const { user, refreshProfile } = useFirebase();
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+
+  const handlePayment = async (planId: string, amount: number, currency: string) => {
+    if (!user) {
+      toast.error("Authentication required for tactical subscriptions.");
+      return;
+    }
+
+    setLoadingPlan(planId);
+    try {
+      // 1. Create Invoice Link via our server
+      const response = await fetch('/api/payments/telegram/create-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.uid,
+          planId: planId,
+          amount: amount,
+          currency: currency
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.url) {
+        // 2. Open Telegram Invoice
+        if (typeof (window as any).Telegram !== 'undefined' && (window as any).Telegram.WebApp) {
+          (window as any).Telegram.WebApp.openInvoice(data.url, async (status: string) => {
+            if (status === 'paid') {
+              // 3. Unlock Access automatically on success
+              await updateDoc(doc(db, 'users', user.uid), {
+                isApproved: true,
+                approvedAt: new Date().toISOString(),
+                planId: planId
+              });
+              toast.success("Payment Successful! Tactical access has been unlocked.");
+              await refreshProfile();
+            } else if (status === 'cancelled') {
+              toast.error("Payment cancelled.");
+            } else {
+              toast.error("Payment failed. Status: " + status);
+            }
+          });
+        } else {
+          // If not in Telegram, open in a new tab for demo purposes
+          toast.info("Opening payment portal...");
+          window.open(data.url, '_blank');
+          
+          // In a real app without the Telegram SDK, we'd wait for a webhook.
+          // For this prototype, we'll offer a fallback manual refresh or mock success
+          if (data.mock) {
+            setTimeout(async () => {
+              await updateDoc(doc(db, 'users', user.uid), {
+                isApproved: true,
+                approvedAt: new Date().toISOString(),
+                planId: planId
+              });
+              toast.success("MOCK SUCCESS: Tactical access unlocked.");
+              await refreshProfile();
+            }, 3000);
+          }
+        }
+      } else {
+        throw new Error(data.error || "Failed to initialize payment");
+      }
+    } catch (error: any) {
+      console.error("Payment Error:", error);
+      toast.error("Strategic payment failed: " + error.message);
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
       {/* Header section */}
@@ -136,6 +235,7 @@ export const SubscriptionStore: React.FC = () => {
       {/* Main Plans Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <PlanCard 
+          id="basic"
           title="Basic Core"
           subtitle="Free | Weekly Access"
           features={[
@@ -147,14 +247,15 @@ export const SubscriptionStore: React.FC = () => {
           models={["GPT-5 mini", "DeepSeek V4", "Gemini 3.1 Flash", "Perplexity", "Nano Banana 2", "GPT Image 2"]}
           icon={Zap}
           accentColor="slate"
+          onSelect={() => toast.info("Basic Core is active by default for all tactical scouts.")}
         />
         
         <PlanCard 
+          id="premium"
           title="Premium Elite"
           subtitle="Monthly Access"
           price="600"
-          period="Stars / Month"
-          isPremium
+          amount={60000} // $600.00 or 600 stars
           features={[
             "100 requests per day limit",
             "All Basic systems included",
@@ -165,13 +266,17 @@ export const SubscriptionStore: React.FC = () => {
           models={["GPT-5.6", "Gemini 3.5 Flash", "Claude 4.8 Opus", "Sonnet 5", "Nano Banana Pro"]}
           icon={Crown}
           accentColor="amber"
+          isPremium
+          onSelect={handlePayment}
+          isLoading={loadingPlan === 'premium'}
         />
 
         <PlanCard 
+          id="premium_x2"
           title="Premium X2"
           subtitle="Monthly High Capacity"
           price="900"
-          period="Stars / Month"
+          amount={90000}
           features={[
             "200 requests per day limit",
             "Full Premium perks included",
@@ -181,6 +286,8 @@ export const SubscriptionStore: React.FC = () => {
           models={["All Premium Models"]}
           icon={Cpu}
           accentColor="blue"
+          onSelect={handlePayment}
+          isLoading={loadingPlan === 'premium_x2'}
         />
       </div>
 
@@ -193,9 +300,11 @@ export const SubscriptionStore: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <PlanCard 
+            id="bundle_image"
             title="Image Pack"
             subtitle="Generation Bundle"
             price="250"
+            amount={25000}
             period="From 250 Stars"
             isBundle
             features={[
@@ -207,12 +316,16 @@ export const SubscriptionStore: React.FC = () => {
             models={["Midjourney", "Recraft", "Flux", "Seedream"]}
             icon={ImageIcon}
             accentColor="emerald"
+            onSelect={handlePayment}
+            isLoading={loadingPlan === 'bundle_image'}
           />
 
           <PlanCard 
+            id="bundle_video"
             title="Video Vault"
             subtitle="Motion Bundle"
             price="150"
+            amount={15000}
             period="From 150 Stars"
             isBundle
             features={[
@@ -224,12 +337,16 @@ export const SubscriptionStore: React.FC = () => {
             models={["Kling", "Veo 3.1", "Seedance 2.0", "Pika"]}
             icon={Video}
             accentColor="rose"
+            onSelect={handlePayment}
+            isLoading={loadingPlan === 'bundle_video'}
           />
 
           <PlanCard 
+            id="bundle_music"
             title="Music Forge"
             subtitle="Audio Bundle"
             price="250"
+            amount={25000}
             period="From 250 Stars"
             isBundle
             features={[
@@ -241,10 +358,12 @@ export const SubscriptionStore: React.FC = () => {
             models={["Suno V5.5", "Lyria 3 Pro"]}
             icon={Music}
             accentColor="purple"
+            onSelect={handlePayment}
+            isLoading={loadingPlan === 'bundle_music'}
           />
         </div>
       </div>
-
+      
       {/* Footer support info */}
       <div className="bg-white/5 border border-white/10 rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="flex items-center gap-4">

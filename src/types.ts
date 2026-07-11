@@ -162,3 +162,21 @@ export interface TickerItem {
   text: string;
   type: "BREAKING" | "TRANSFER" | "RUMOR";
 }
+
+export interface TonTransaction {
+  id: string;
+  utime: number;
+  amount: string;
+  type: 'in' | 'out';
+  success: boolean;
+  lt: string;
+}
+
+export interface TonWallet {
+  address: string;
+  mnemonic: string[];
+  publicKey: string;
+  version: string;
+  createdAt: string;
+  history?: TonTransaction[];
+}

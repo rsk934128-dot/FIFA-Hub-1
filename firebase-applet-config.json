@@ -6,5 +6,6 @@
   "firestoreDatabaseId": "ai-studio-fifahub-236bf4ef-42bb-41e0-94ca-3f4c8db500db",
   "storageBucket": "project-c5fed922-e24c-4280-862.firebasestorage.app",
   "messagingSenderId": "394844522843",
-  "measurementId": "G-PWKSVSKFEV"
+  "measurementId": "G-PWKSVSKFEV",
+  "oAuthClientId": "394844522843-t2kg5tlm28avobja6ccaqmb3iemoklec.apps.googleusercontent.com"
 }

@@ -48,9 +48,10 @@ service cloud.firestore {
     }
 
     function isValidUser(data) {
-      return data.keys().hasAll(['uid', 'email']) &&
+      return data.keys().hasAll(['uid', 'email', 'isApproved']) &&
              data.uid == request.auth.uid &&
-             data.email is string && data.email.size() <= 255;
+             data.email is string && data.email.size() <= 255 &&
+             data.isApproved is bool;
     }
 
     function isValidNews(data) {
@@ -67,9 +68,10 @@ service cloud.firestore {
     }
 
     function isValidFCMToken(data) {
-      return data.keys().hasAll(['token', 'lastUpdated']) &&
+      return data.keys().hasAll(['token', 'lastUpdated', 'platform']) &&
              data.token is string && data.token.size() <= 1000 &&
-             data.lastUpdated is string;
+             data.lastUpdated is string &&
+             data.platform in ['web', 'ios', 'android'];
     }
 
     // 4. Collection Rules
@@ -128,7 +130,7 @@ service cloud.firestore {
       allow list: if false; // No listing users
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isOwner(userId) && isValidUser(incoming()) && 
-                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings']);
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'settings', 'isApproved', 'approvedAt']);
 
       match /fcm_tokens/{tokenId} {
         allow read, write: if isOwner(userId) && isValidId(tokenId) && (request.method == 'delete' || isValidFCMToken(incoming()));

@@ -28,16 +28,16 @@ export const LiveScoresMarquee: React.FC = () => {
   const marqueeItems = [...mockScores, ...mockScores, ...mockScores];
 
   return (
-    <div className="w-full bg-amber-500/5 border-b border-white/5 py-2 overflow-hidden flex items-center relative z-30 group">
+    <div className="w-full bg-amber-500/5 border-b border-white/5 py-1.5 sm:py-2 overflow-hidden flex items-center relative z-30 group">
       {/* Label Panel */}
-      <div className="absolute left-0 top-0 bottom-0 px-4 bg-amber-500 flex items-center gap-2 z-40 shadow-[4px_0_15px_rgba(0,0,0,0.3)]">
-        <Activity className="w-3 h-3 text-black animate-pulse" />
-        <span className="text-[10px] font-black text-black tracking-tighter uppercase italic">LIVE SCORES</span>
+      <div className="absolute left-0 top-0 bottom-0 px-2.5 sm:px-4 bg-amber-500 flex items-center gap-1.5 sm:gap-2 z-40 shadow-[4px_0_15px_rgba(0,0,0,0.3)]">
+        <Activity className="w-3 h-3 text-black animate-pulse flex-shrink-0" />
+        <span className="text-[9px] sm:text-[10px] font-black text-black tracking-tighter uppercase italic whitespace-nowrap">LIVE SCORES</span>
       </div>
 
       {/* Scrolling Content */}
       <motion.div 
-        className="flex items-center gap-8 whitespace-nowrap pl-32"
+        className="flex items-center gap-6 sm:gap-8 whitespace-nowrap pl-24 sm:pl-32"
         animate={{ x: [0, -1035] }} // Adjust based on content width
         transition={{ 
           duration: 30, 

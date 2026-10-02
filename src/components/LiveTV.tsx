@@ -167,22 +167,22 @@ export default function LiveTV() {
                 />
 
                 {/* HUD: Top */}
-                <div className="absolute top-0 left-0 right-0 p-8 flex justify-between items-start pointer-events-none">
-                  <div className="flex flex-col gap-2">
-                    <div className="bg-rose-600 text-white px-4 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-2 shadow-xl shadow-rose-600/20">
+                <div className="absolute top-0 left-0 right-0 p-3 sm:p-6 md:p-8 flex flex-wrap justify-between items-start gap-2 pointer-events-none">
+                  <div className="flex flex-col gap-1.5 sm:gap-2">
+                    <div className="bg-rose-600 text-white px-3 sm:px-4 py-1 sm:py-1.5 rounded-lg text-[9px] sm:text-[11px] font-black uppercase tracking-[0.2em] flex items-center gap-1.5 sm:gap-2 shadow-xl shadow-rose-600/20">
                       <div className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
                       LIVE TRANSMISSION
                     </div>
                     {streamState === 'active' && (
-                      <div className="bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 text-[9px] font-mono text-emerald-400 font-black uppercase tracking-widest flex items-center gap-2">
-                        <Activity className="w-3 h-3" />
+                      <div className="bg-black/60 backdrop-blur-md px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border border-white/10 text-[8px] sm:text-[9px] font-mono text-emerald-400 font-black uppercase tracking-widest flex items-center gap-1.5 sm:gap-2">
+                        <Activity className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                         STABLE • 60 FPS
                       </div>
                     )}
                   </div>
                   
-                  <div className="bg-black/60 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 text-white text-[10px] font-mono flex items-center gap-3">
-                    <Users className="w-4 h-4 text-rose-500" />
+                  <div className="bg-black/60 backdrop-blur-md px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl border border-white/10 text-white text-[9px] sm:text-[10px] font-mono flex items-center gap-2 sm:gap-3">
+                    <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-500" />
                     <span className="font-black tracking-widest">{selectedChannel.viewerCount} VIEWING</span>
                   </div>
                 </div>
@@ -192,9 +192,9 @@ export default function LiveTV() {
                   {streamState === "idle" && (
                     <button 
                       onClick={handlePlay}
-                      className="w-24 h-24 bg-white text-black rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(255,255,255,0.15)] hover:scale-110 active:scale-95 transition-all cursor-pointer group/play"
+                      className="w-16 h-16 sm:w-24 sm:h-24 bg-white text-black rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(255,255,255,0.15)] hover:scale-110 active:scale-95 transition-all cursor-pointer group/play"
                     >
-                      <Play className="w-10 h-10 fill-current group-hover/play:scale-110 transition-transform ml-1" />
+                      <Play className="w-7 h-7 sm:w-10 sm:h-10 fill-current group-hover/play:scale-110 transition-transform ml-1" />
                     </button>
                   )}
                   
@@ -237,27 +237,27 @@ export default function LiveTV() {
                 </div>
 
                 {/* HUD: Bottom */}
-                <div className="absolute bottom-0 left-0 right-0 p-10">
-                  <div className="flex items-end justify-between gap-8">
+                <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-6 md:p-10">
+                  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-6 md:gap-8">
                     <div className="max-w-xl">
-                      <h3 className="text-4xl font-black text-white uppercase italic tracking-tighter mb-3 leading-none">{selectedChannel.match}</h3>
-                      <div className="flex items-center gap-4">
+                      <h3 className="text-xl sm:text-2xl md:text-4xl font-black text-white uppercase italic tracking-tighter mb-1.5 sm:mb-3 leading-tight">{selectedChannel.match}</h3>
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                         <div className="flex items-center gap-2">
                           <div className="w-5 h-5 rounded-md bg-rose-500/10 flex items-center justify-center border border-rose-500/20">
                             <Tv className="w-3 h-3 text-rose-500" />
                           </div>
-                          <span className="text-[11px] font-mono text-rose-500 font-black uppercase tracking-widest">{selectedChannel.name}</span>
+                          <span className="text-[10px] sm:text-[11px] font-mono text-rose-500 font-black uppercase tracking-widest">{selectedChannel.name}</span>
                         </div>
-                        <span className="w-1 h-1 rounded-full bg-white/20" />
-                        <span className="text-xs text-slate-400 font-bold uppercase tracking-tight">World Cup 2026 Exclusive HD</span>
+                        <span className="w-1 h-1 rounded-full bg-white/20 hidden sm:inline-block" />
+                        <span className="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-tight">World Cup 2026 Exclusive HD</span>
                       </div>
                     </div>
                     {streamState === "active" && (
                       <button 
                         onClick={() => setStreamState("idle")}
-                        className="bg-white/10 hover:bg-rose-500/20 hover:border-rose-500/30 text-white px-6 py-3 rounded-2xl border border-white/10 backdrop-blur-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-3 transition-all cursor-pointer group"
+                        className="self-start sm:self-auto bg-white/10 hover:bg-rose-500/20 hover:border-rose-500/30 text-white px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl border border-white/10 backdrop-blur-xl text-[9px] sm:text-[10px] font-black uppercase tracking-widest flex items-center gap-2 sm:gap-3 transition-all cursor-pointer group"
                       >
-                        <Zap className="w-4 h-4 group-hover:text-rose-500 transition-colors" />
+                        <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 group-hover:text-rose-500 transition-colors" />
                         Terminate Feed
                       </button>
                     )}

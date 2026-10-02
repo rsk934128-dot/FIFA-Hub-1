@@ -132,24 +132,33 @@ export default function TacticalAdvisor() {
   };
 
   return (
-    <div id="tactical-advisor-module" className="max-w-4xl mx-auto h-[700px] flex flex-col bg-white/5 border border-white/10 rounded-3xl overflow-hidden backdrop-blur-md shadow-2xl">
-      {/* Header */}
-      <div className="bg-white/5 border-b border-white/10 p-6 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-            <Bot className="w-6 h-6 text-amber-500" />
-          </div>
-          <div>
-            <h2 className="text-xl font-black text-white uppercase italic tracking-tight">Tactical Advisor</h2>
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Elite Uplink Active</span>
+    <div id="tactical-advisor-module" className="max-w-4xl mx-auto h-[740px] flex flex-col bg-white/5 border border-white/10 rounded-3xl overflow-hidden backdrop-blur-md shadow-2xl">
+      {/* Tactical AI Pitch Banner */}
+      <div className="relative h-28 w-full overflow-hidden border-b border-white/10 group">
+        <img 
+          src="/src/assets/images/tactical_ai_pitch_1790958948811.jpg" 
+          alt="AI Tactical Command Pitch Analysis" 
+          referrerPolicy="no-referrer"
+          className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-1000"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#050811] via-[#050811]/70 to-transparent" />
+        <div className="absolute inset-0 px-6 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-black/60 border border-amber-500/30 flex items-center justify-center backdrop-blur-md">
+              <Bot className="w-6 h-6 text-amber-500" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-white uppercase italic tracking-tight drop-shadow">Tactical Advisor AI</h2>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[10px] font-mono text-zinc-300 uppercase tracking-widest font-bold">Neural Pitch Command Active</span>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="bg-amber-500/10 text-amber-400 text-[10px] font-mono px-3 py-1.5 rounded-full border border-amber-500/20 flex items-center gap-2 font-bold uppercase tracking-widest">
-          <Sparkles className="w-3.5 h-3.5" />
-          AI Powered
+          <div className="bg-black/60 text-amber-400 text-[10px] font-mono px-3.5 py-1.5 rounded-full border border-amber-500/30 flex items-center gap-2 font-bold uppercase tracking-widest backdrop-blur-md">
+            <Sparkles className="w-3.5 h-3.5" />
+            Tactical Matrix Online
+          </div>
         </div>
       </div>
 

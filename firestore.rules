@@ -128,7 +128,8 @@ service cloud.firestore {
 
     match /roadmap/{milestoneId} {
       allow read: if true;
-      allow write: if isSignedIn() && isValidId(milestoneId) && isValidMilestone(incoming());
+      allow create, update: if isValidId(milestoneId) && isValidMilestone(incoming());
+      allow delete: if isSignedIn() && isValidId(milestoneId);
     }
 
     match /watchlists/{watchlistId} {

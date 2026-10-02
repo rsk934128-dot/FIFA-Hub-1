@@ -49,39 +49,51 @@ export function WalletManager({ userId }: WalletManagerProps) {
   };
 
   const fetchBalance = async (address: string) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     setRefreshingBalance(true);
     try {
       const response = await fetch('/api/wallet/balance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address }),
+        signal: controller.signal
       });
-      const data = await response.json();
-      if (data.balance !== undefined) {
-        setBalance(data.balance);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.balance !== undefined) {
+          setBalance(data.balance);
+        }
       }
     } catch (err) {
-      console.error('Failed to fetch balance');
+      console.warn('Balance sync skipped or unavailable');
     } finally {
+      clearTimeout(timeout);
       setRefreshingBalance(false);
     }
   };
 
   const fetchHistory = async (address: string) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     setLoadingHistory(true);
     try {
       const response = await fetch('/api/wallet/history', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address }),
+        signal: controller.signal
       });
-      const data = await response.json();
-      if (data.history) {
-        setHistory(data.history);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.history) {
+          setHistory(data.history);
+        }
       }
     } catch (err) {
-      console.error('Failed to fetch history');
+      console.warn('History sync skipped or unavailable');
     } finally {
+      clearTimeout(timeout);
       setLoadingHistory(false);
     }
   };

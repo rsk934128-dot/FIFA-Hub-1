@@ -63,23 +63,35 @@ export default function TriviaQuiz() {
     updateHighScore();
   }, [score, user]);
 
+  const FALLBACK_QUESTION: QuizQuestion = {
+    question: "Which nation won the inaugural FIFA World Cup in 1930?",
+    options: ["Uruguay", "Argentina", "Brazil", "Italy"],
+    correctIndex: 0,
+    explanation: "Uruguay hosted and won the first FIFA World Cup in 1930, defeating Argentina 4-2 in the final in Montevideo.",
+    category: "World Cup History",
+    engine: "fallback"
+  };
+
   const fetchQuestion = async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
     try {
       setLoading(true);
       setError(null);
       setSelectedIdx(null);
       setIsAnswered(false);
 
-      const response = await fetch("/api/quiz-question");
+      const response = await fetch("/api/quiz-question", { signal: controller.signal });
       if (!response.ok) {
         throw new Error("Failed to load question.");
       }
       const data = await response.json();
       setQuestion(data);
     } catch (err) {
-      setError("Unable to generate fresh quiz question. Please try again.");
-      console.error(err);
+      console.warn("Using fallback quiz question:", err);
+      setQuestion(FALLBACK_QUESTION);
     } finally {
+      clearTimeout(timeout);
       setLoading(false);
     }
   };

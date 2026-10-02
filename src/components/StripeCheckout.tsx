@@ -14,17 +14,23 @@ export const StripeCheckout: React.FC = () => {
 
   useEffect(() => {
     const fetchConfig = async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
       try {
-        const res = await fetch('/api/config');
-        const { publishableKey } = await res.json();
-        if (publishableKey) {
-          setStripePromise(loadStripe(publishableKey));
-        } else {
-          console.warn("Stripe Publishable Key not found in environment.");
+        const res = await fetch('/api/config', { signal: controller.signal });
+        if (res.ok) {
+          const { publishableKey } = await res.json();
+          if (publishableKey && !publishableKey.includes("placeholder")) {
+            setStripePromise(loadStripe(publishableKey).catch(e => {
+              console.warn("Could not load Stripe SDK:", e);
+              return null;
+            }));
+          }
         }
       } catch (err) {
-        console.error("Failed to fetch Stripe config:", err);
+        console.warn("Stripe config unavailable:", err);
       } finally {
+        clearTimeout(timeout);
         setConfigLoading(false);
       }
     };

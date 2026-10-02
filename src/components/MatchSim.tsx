@@ -28,9 +28,23 @@ const NATIONS = [
 
 interface MatchSimProps {
   soundEnabled?: boolean;
+  initialMatch?: {
+    teamA: string;
+    teamB: string;
+    scoreA?: number;
+    scoreB?: number;
+    competition?: string;
+    minute?: string;
+    status?: string;
+    goalScorers?: string[];
+    summary?: string;
+    possession?: [number, number];
+    shots?: [number, number];
+    shotsOnTarget?: [number, number];
+  } | null;
 }
 
-export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
+export default function MatchSim({ soundEnabled = false, initialMatch = null }: MatchSimProps) {
   const { user } = useFirebase();
   const [teamA, setTeamA] = useState<string>("Argentina");
   const [teamB, setTeamB] = useState<string>("Brazil");
@@ -48,6 +62,67 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
   const [trackedTeams, setTrackedTeams] = useState<string[]>([]);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Synchronize incoming real match established from Google Mini Browser
+  useEffect(() => {
+    if (!initialMatch) return;
+
+    setTeamA(initialMatch.teamA);
+    setTeamB(initialMatch.teamB);
+
+    const generatedEvents: MatchEvent[] = [
+      { minute: 1, type: "kickoff", team: "none", player: "Referee", description: `Match kicked off at ${initialMatch.competition || "Live Arena"}.` }
+    ];
+
+    if (initialMatch.goalScorers && initialMatch.goalScorers.length > 0) {
+      initialMatch.goalScorers.forEach((scorer) => {
+        const minMatch = scorer.match(/(\d+)/);
+        const min = minMatch ? parseInt(minMatch[1]) : 28;
+        const player = scorer.replace(/\d+.*$/, "").trim() || "Star Forward";
+        generatedEvents.push({
+          minute: min,
+          type: "goal",
+          team: Math.random() > 0.5 ? "A" : "B",
+          player: player,
+          description: `GOAL! ${player} scores with precision in the ${min}' minute!`
+        });
+      });
+    }
+
+    const numericMin = parseInt(initialMatch.minute?.replace(/\D/g, "") || "75") || 75;
+
+    const result: SimulationResult = {
+      teamA: initialMatch.teamA,
+      teamB: initialMatch.teamB,
+      scoreA: initialMatch.scoreA ?? 0,
+      scoreB: initialMatch.scoreB ?? 0,
+      stats: {
+        possession: initialMatch.possession || [52, 48],
+        shots: initialMatch.shots || [12, 10],
+        shotsOnTarget: initialMatch.shotsOnTarget || [5, 4],
+        corners: [4, 3],
+        fouls: [8, 9],
+        yellowCards: [1, 2],
+        redCards: [0, 0]
+      },
+      events: generatedEvents,
+      highlights: [
+        initialMatch.summary || `${initialMatch.teamA} vs ${initialMatch.teamB} live tactical telemetry established from Google Mini Browser.`
+      ],
+      manOfTheMatch: {
+        name: initialMatch.goalScorers?.[0] ? initialMatch.goalScorers[0].replace(/\d+.*$/, "").trim() : `${initialMatch.teamA} Captain`,
+        team: initialMatch.teamA,
+        rating: 8.8,
+        highlight: "Instrumental tactical commander creating attacking transitions and high pressing volume."
+      }
+    };
+
+    setSimResult(result);
+    setCurrentMinute(numericMin);
+    setVisibleEvents(generatedEvents);
+    setIsPlaying(false);
+    setIsFinished(initialMatch.status === "FINISHED" || initialMatch.minute === "FT");
+  }, [initialMatch]);
 
   // Load tracked teams
   useEffect(() => {
@@ -440,6 +515,35 @@ export default function MatchSim({ soundEnabled = false }: MatchSimProps) {
       {/* Simulation Dashboard */}
       {!simResult && !loading && (
         <div className="bg-white/5 border border-white/10 rounded-3xl p-6 md:p-8 space-y-6 max-w-3xl mx-auto backdrop-blur-sm shadow-2xl relative overflow-hidden">
+          {/* Panoramic Stadium Atmosphere Banner */}
+          <div className="relative h-44 sm:h-52 w-full rounded-2xl overflow-hidden mb-6 border border-white/10 group shadow-2xl">
+            <img 
+              src="/src/assets/images/stadium_hero_match_1790958917322.jpg" 
+              alt="World Cup Match Arena Stadium" 
+              referrerPolicy="no-referrer"
+              className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-1000"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#050811] via-black/40 to-transparent" />
+            <div className="absolute top-4 left-4 flex items-center gap-2 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-mono font-bold text-amber-400 uppercase tracking-widest">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Live Stadium Feed Online
+            </div>
+            <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between">
+              <div>
+                <h3 className="text-xl sm:text-2xl font-black text-white italic tracking-tighter uppercase drop-shadow-md">
+                  Grand Arena Kickoff Deck
+                </h3>
+                <p className="text-[11px] text-zinc-300 font-mono tracking-tight">
+                  80,000 Capacity Stadium Atmosphere Active
+                </p>
+              </div>
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 font-mono text-[10px] uppercase font-bold backdrop-blur-md">
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                Ultra-HD Telemetry
+              </div>
+            </div>
+          </div>
+
           <div className="absolute top-0 right-0 p-8 opacity-5">
             <Gauge className="w-40 h-40 text-white" />
           </div>

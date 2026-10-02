@@ -505,6 +505,23 @@ export default function TournamentCenter() {
         {/* Sidebar: Control & Intelligence */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-gradient-to-br from-[#0A0F1E] to-transparent border border-white/10 rounded-3xl p-6 relative overflow-hidden">
+            {/* Golden Trophy Showcase Header */}
+            <div className="relative h-28 w-full rounded-2xl overflow-hidden mb-5 border border-amber-500/20 group">
+              <img 
+                src="/src/assets/images/world_cup_trophy_1790958935586.jpg" 
+                alt="World Cup Golden Trophy" 
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover object-center group-hover:scale-110 transition-transform duration-700"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0A0F1E] via-black/30 to-transparent" />
+              <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between">
+                <span className="text-[9px] font-mono text-amber-400 font-bold tracking-wider uppercase bg-black/60 px-2 py-0.5 rounded-full border border-amber-500/30">
+                  Official Trophy
+                </span>
+                <span className="text-[10px] font-mono text-zinc-300 font-bold">2026 Edition</span>
+              </div>
+            </div>
+
             <div className="absolute top-0 right-0 p-4">
               <Zap className="w-12 h-12 text-amber-500/5" />
             </div>
@@ -693,11 +710,27 @@ export default function TournamentCenter() {
                 className="space-y-10"
               >
                 {champion && (
-                  <div className="bg-gradient-to-r from-amber-500 to-amber-600 rounded-3xl p-8 text-center space-y-4 shadow-2xl shadow-amber-500/20 relative overflow-hidden group">
-                    <Trophy className="w-20 h-20 text-black mx-auto drop-shadow-2xl mb-2 relative" />
-                    <div className="relative">
-                      <p className="text-[11px] font-mono text-black uppercase tracking-[0.3em] font-black mb-1">TOURNAMENT SUPREMACY</p>
-                      <h3 className="text-5xl font-black text-white tracking-tighter italic uppercase drop-shadow-lg">{champion}</h3>
+                  <div className="relative rounded-3xl overflow-hidden shadow-2xl shadow-amber-500/30 border border-amber-500/40 group">
+                    <div className="h-64 sm:h-80 w-full relative">
+                      <img 
+                        src="/src/assets/images/world_cup_trophy_1790958935586.jpg" 
+                        alt="FIFA World Cup Trophy Coronation" 
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-1000"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+                      <div className="absolute inset-0 flex flex-col items-center justify-end p-8 text-center">
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500 text-black font-mono text-xs font-black uppercase tracking-[0.3em] mb-2 shadow-xl">
+                          <Trophy className="w-4 h-4 fill-black" />
+                          Tournament Champion Crowned
+                        </div>
+                        <h3 className="text-4xl sm:text-6xl font-black text-white tracking-tighter italic uppercase drop-shadow-2xl">
+                          {champion}
+                        </h3>
+                        <p className="text-xs sm:text-sm text-amber-300 font-mono tracking-wider mt-1 drop-shadow">
+                          Undisputed Global Champion of FIFA World Cup 2026
+                        </p>
+                      </div>
                     </div>
                   </div>
                 )}

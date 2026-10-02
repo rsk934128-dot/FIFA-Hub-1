@@ -1,3 +1,10 @@
+export interface NewsAuthor {
+  name: string;
+  role: string;
+  handle?: string;
+  avatarUrl?: string;
+}
+
 export interface NewsArticle {
   id: string;
   title: string;
@@ -9,6 +16,8 @@ export interface NewsArticle {
   source: string;
   engine?: "gemini" | "fallback" | "grounded";
   sources?: { title: string; url: string }[];
+  author?: NewsAuthor;
+  readTime?: string;
 }
 
 export interface MatchStats {
